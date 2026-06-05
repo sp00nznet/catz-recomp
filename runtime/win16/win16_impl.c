@@ -262,7 +262,28 @@ void USER_CREATEWINDOW(CPU *cpu)   { cpu->ax = FAKE_HWND; ret(cpu, 30); }
 void USER_GETSYSTEMMENU(CPU *cpu)  { cpu->ax = FAKE_HANDLE; ret(cpu, 4); }
 void USER_APPENDMENU(CPU *cpu)     { cpu->ax = 1; ret(cpu, 10); }
 void USER_LOADICON(CPU *cpu)       { cpu->ax = FAKE_HANDLE; ret(cpu, 6); }
-void USER_GETSYSTEMMETRICS(CPU *cpu){ cpu->ax = 0; ret(cpu, 2); }
+void USER_GETSYSTEMMETRICS(CPU *cpu) {     /* index@0 */
+    uint16_t i = a16(cpu, 0);
+    int v;
+    switch (i) {
+        case 0:  v = 640; break;  /* SM_CXSCREEN */
+        case 1:  v = 480; break;  /* SM_CYSCREEN */
+        case 2:  v = 16;  break;  /* SM_CXVSCROLL */
+        case 3:  v = 16;  break;  /* SM_CYHSCROLL */
+        case 4:  v = 18;  break;  /* SM_CYCAPTION */
+        case 5:  v = 1;   break;  /* SM_CXBORDER */
+        case 6:  v = 1;   break;  /* SM_CYBORDER */
+        case 7:  v = 2;   break;  /* SM_CXDLGFRAME */
+        case 8:  v = 2;   break;  /* SM_CYDLGFRAME */
+        case 15: v = 18;  break;  /* SM_CYMENU */
+        case 16: v = 640; break;  /* SM_CXFULLSCREEN */
+        case 17: v = 462; break;  /* SM_CYFULLSCREEN */
+        case 32: v = 2;   break;  /* SM_CXFRAME */
+        case 33: v = 2;   break;  /* SM_CYFRAME */
+        default: v = 0;   break;
+    }
+    cpu->ax = (uint16_t)v; ret(cpu, 2);
+}
 void USER_SETMESSAGEQUEUE(CPU *cpu){ cpu->ax = 1; ret(cpu, 2); }
 void KERNEL_GETWINDOWSDIRECTORY(CPU *cpu) {   /* LPSTR off@2/seg@4, UINT@0 */
     uint16_t nSize = a16(cpu, 0), off = a16(cpu, 2), seg = a16(cpu, 4);
