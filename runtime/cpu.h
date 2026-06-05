@@ -79,6 +79,8 @@ typedef struct CPU {
     uint16_t ds;
     uint16_t es;
     uint16_t ss;
+    uint16_t fs;   /* 386 extra segment regs (push/pop fs/gs in context save/restore) */
+    uint16_t gs;
 
     /* Instruction pointer (debug) */
     uint16_t ip;
@@ -129,6 +131,25 @@ static inline uint32_t seg_off(CPU *cpu, uint16_t seg, uint16_t off) {
     return cpu->sel_base[seg] + off;
 }
 
+/* LAR/LSL: protected-mode selector queries the engine uses to validate a far
+ * pointer before dereferencing it (e.g. Borland's per-instance record guard:
+ * `lar ax,[sel]; jne bad; and ax,0x800; jne bad` -- proceed only if the
+ * selector is valid AND a data segment). In our flat model a selector is valid
+ * iff it maps to a real/allocated segment (its base isn't the guard region).
+ * Returns 1 (valid) and fills *out, else 0. cpu_lar reports data-segment access
+ * rights (0x9300: present, DPL0, data, writable -- executable bit 0x800 clear);
+ * cpu_lsl reports a full 64K segment limit. */
+static inline int cpu_lar(CPU *cpu, uint16_t sel, uint16_t *out) {
+    if (sel == 0 || cpu->sel_base[sel] == CATZ_GUARD_BASE) return 0;
+    *out = 0x9300;
+    return 1;
+}
+static inline int cpu_lsl(CPU *cpu, uint16_t sel, uint16_t *out) {
+    if (sel == 0 || cpu->sel_base[sel] == CATZ_GUARD_BASE) return 0;
+    *out = 0xFFFF;
+    return 1;
+}
+
 static inline uint8_t mem_read8(CPU *cpu, uint16_t seg, uint16_t off) {
     return cpu->mem[seg_off(cpu, seg, off)];
 }
@@ -150,6 +171,29 @@ static inline uint16_t mem_read16(CPU *cpu, uint16_t seg, uint16_t off) {
 
 static inline void mem_write16(CPU *cpu, uint16_t seg, uint16_t off, uint16_t val) {
     uint32_t addr = seg_off(cpu, seg, off);
+#ifdef CATZ_WATCH_EXC
+    {   /* Stack-overflow detector: log the first time sp descends below a low
+         * watermark — catches whatever is consuming the stack toward underflow. */
+        static int _logged = 0;
+        if (!_logged && cpu->sp != 0 && cpu->sp < 0x0600) {
+            _logged = 1;
+            fprintf(stderr, "[STACK-LOW] sp=%04X ring:", cpu->sp);
+            for (int _i = 20; _i > 0; _i--) {
+                const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)_i) & (CATZ_FN_RING_SIZE - 1)];
+                if (nm) fprintf(stderr, " %s", nm + 3);
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+    if (seg == 0x42 && (off == 0x14 || (off >= 0xFFBC && off <= 0xFFC0))) {
+        fprintf(stderr, "[exc] ss:[%04X] <- %04X  (sp=%04X) ring:", off, val, cpu->sp);
+        for (int _i = 16; _i > 0; _i--) {
+            const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)_i) & (CATZ_FN_RING_SIZE - 1)];
+            if (nm) fprintf(stderr, " %s", nm + 3);   /* skip "seg" prefix */
+        }
+        fprintf(stderr, "\n");
+    }
+#endif
     cpu->mem[addr] = (uint8_t)(val & 0xFF);
     cpu->mem[addr + 1] = (uint8_t)(val >> 8);
 }

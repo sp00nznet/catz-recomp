@@ -58,6 +58,13 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
      * synchronously while the guest is mid-call), so snapshot the FULL guest
      * register state and restore it afterwards. */
     CPU save = *cpu;
+    /* The Borland C0 exception/cleanup chain head lives at ss:[0x14] in the
+     * task's stack segment. The WNDPROC runs re-entrantly on the SAME stack and
+     * registers its own cleanup frames (updating ss:[0x14]); those frames are
+     * gone once we restore the interrupted guest's SP, so the head must be put
+     * back too -- otherwise it points at a stale frame and the interrupted
+     * guest's later chain walk loops forever. Snapshot it alongside the CPU. */
+    uint16_t saved_exc_head = mem_read16(cpu, cpu->ss, 0x14);
     cpu->ds = cpu->es = (g_wndproc_seg <= 59) ? CATZ_DLL_AUTO_DATA_SEG : CATZ_AUTO_DATA_SEG;
     push16(cpu, hwnd);
     push16(cpu, msg);
@@ -73,6 +80,8 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
     uint32_t hn = cpu->heap_next; uint16_t ns = cpu->next_sel;
     *cpu = save;
     cpu->mem = mem; cpu->sel_base = sel; cpu->heap_next = hn; cpu->next_sel = ns;
+    /* Put the cleanup-chain head back: the WNDPROC's frames no longer exist. */
+    mem_write16(cpu, cpu->ss, 0x14, saved_exc_head);
     return ret;
 }
 
