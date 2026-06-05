@@ -87,8 +87,18 @@ finally:
 
 with open(out_path, "w", encoding="utf-8") as f:
     json.dump(result, f)
+# Merge imports into the shared map (multiple modules share the shim layer).
+merged = {}
+if os.path.exists(imports_path):
+    try:
+        with open(imports_path, encoding="utf-8") as f:
+            merged = json.load(f)
+    except Exception:
+        merged = {}
+for mod, ords in imports.items():
+    merged.setdefault(mod, {}).update(ords)
 with open(imports_path, "w", encoding="utf-8") as f:
-    json.dump(imports, f, indent=1, sort_keys=True)
+    json.dump(merged, f, indent=1, sort_keys=True)
 
 tot_f = sum(len(v["functions"]) for v in result.values())
 tot_h = sum(len(v["heads"]) for v in result.values())

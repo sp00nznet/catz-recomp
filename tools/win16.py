@@ -88,6 +88,7 @@ PURGE = {
     ('KERNEL', 'GLOBALUNLOCK'): 2, ('KERNEL', 'GLOBALSIZE'): 2,
     ('KERNEL', 'GLOBALHANDLE'): 2, ('KERNEL', 'GLOBALFLAGS'): 2,
     ('KERNEL', 'LOCALINIT'): 6, ('KERNEL', 'GETWINFLAGS'): 0,
+    ('KERNEL', 'INITTASK'): 0, ('KERNEL', 'WAITEVENT'): 2, ('KERNEL', 'INITAPP'): 2,
     ('KERNEL', 'GETVERSION'): 0, ('KERNEL', 'GETCURRENTTASK'): 0,
     ('KERNEL', 'GETMODULEUSAGE'): 2, ('KERNEL', 'GETMODULEFILENAME'): 8,
     ('KERNEL', 'GETMODULEHANDLE'): 4, ('KERNEL', 'FINDRESOURCE'): 10,
@@ -102,6 +103,11 @@ PURGE = {
     ('KERNEL', 'WRITEPRIVATEPROFILESTRING'): 16, ('KERNEL', 'GETPROCADDRESS'): 6,
     ('KERNEL', 'LSTRLEN'): 4, ('KERNEL', 'LSTRCPY'): 8, ('KERNEL', 'LSTRCAT'): 8,
     # ---- USER ----
+    ('USER', 'INITAPP'): 2, ('USER', 'SETMESSAGEQUEUE'): 2,
+    ('USER', 'REGISTERCLASS'): 4, ('USER', 'CREATEWINDOW'): 30,
+    ('USER', 'GETSYSTEMMENU'): 4, ('USER', 'APPENDMENU'): 10, ('USER', 'LOADICON'): 6,
+    ('USER', 'GETSYSTEMMETRICS'): 2, ('KERNEL', 'GETWINDOWSDIRECTORY'): 6,
+    ('CTL3DV2', 'CTL3DREGISTER'): 2, ('CTL3DV2', 'CTL3DAUTOSUBCLASS'): 2,
     ('USER', 'MESSAGEBOX'): 12, ('USER', 'MESSAGEBEEP'): 2, ('USER', 'SETTIMER'): 10,
     ('USER', 'KILLTIMER'): 4, ('USER', 'GETTICKCOUNT'): 0, ('USER', 'PEEKMESSAGE'): 12,
     ('USER', 'SENDMESSAGE'): 10, ('USER', 'TRANSLATEMESSAGE'): 4,
@@ -195,7 +201,10 @@ def get_import(module: str, ordinal: int) -> Win16Import:
         known = True
 
     if api:
-        name = f'{mod}_{_sanitize(api)}'
+        # Uppercase so names are consistent whether resolved from IDA (which
+        # yields UPPERCASE) or the built-in seed (mixed case) -> shim impls and
+        # call sites always agree.
+        name = f'{mod}_{_sanitize(api).upper()}'
     else:
         api = f'Ord{ordinal}'
         name = f'{mod}_Ord{ordinal}'

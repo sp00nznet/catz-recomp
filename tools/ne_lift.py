@@ -38,6 +38,12 @@ class NELifter(Lifter):
         self.reloc_map = build_reloc_map(seg, ne)
         # Build function name map: (seg_num, offset) -> name
         self.func_names = {}
+        # Segment lookup by (possibly offset) index — robust to segment-number
+        # remapping used for multi-module recomp (CATZ.WAD segs become 60+).
+        self.seg_by_index = {s.index: s for s in ne.segments}
+        # Cross-module call resolution: {MODULE_UPPER: {ordinal: (seg, off)}}.
+        # Set externally for the host module (CATZ.WAD -> CATZDLL exports).
+        self.xmod = {}
 
     def _resolve_far_call(self, inst: Instruction) -> Optional[str]:
         """Resolve a far call instruction using relocation data."""
@@ -50,13 +56,19 @@ class NELifter(Lifter):
                 target_type = r.flags & 3
                 if target_type == 0:  # Internal
                     if r.target_seg > 0 and r.target_seg != 0xFF:
-                        target = self.ne.segments[r.target_seg - 1]
-                        if target.is_code:
+                        target = self.seg_by_index.get(r.target_seg)
+                        if target is not None and target.is_code:
                             return f'seg{r.target_seg:03d}_{r.target_off:04X}'
                         else:
                             return f'/* data ref seg{r.target_seg}:{r.target_off:04X} */'
                 elif target_type in (1, 2):  # Import by ordinal / by name
                     mod = module_name(self.ne, r.module_idx)
+                    # Cross-module call into another lifted module (e.g. CATZDLL):
+                    # resolve the ordinal to that module's export entry -> function.
+                    xm = self.xmod.get(mod.upper())
+                    if xm is not None and r.ordinal in xm:
+                        s, o = xm[r.ordinal]
+                        return f'seg{s:03d}_{o:04X}'
                     imp = get_import(mod, r.ordinal)
                     return imp.name
         return None
@@ -504,8 +516,9 @@ class NELifter(Lifter):
             return f'fpu_write_i16(cpu, {seg}, {off}, {value});'
 
 
-def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1):
-    """Lift functions from a segment to C code."""
+def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
+    """Lift functions from a segment to C code. `xmod` (optional) maps a module
+    name to {ordinal: (seg, off)} for cross-module call resolution (host->DLL)."""
     seg = next((s for s in ne.segments if s.index == seg_num), None)
     if not seg or not seg.is_code:
         print(f"Error: segment {seg_num} not found or not CODE")
@@ -526,6 +539,7 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1):
 
     # Lift each function
     lifter = NELifter(ne, seg)
+    lifter.xmod = xmod or {}
     # Function entry offsets in this segment, for near-jmp-to-another-function.
     lifter.seg_func_offsets = {f.offset for f in functions}
 

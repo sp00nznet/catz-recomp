@@ -75,15 +75,28 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status: DLL Initialization Runs End-To-End ✅
+## Status: Multi-Module Host+Engine Runs Through Window Creation ✅
 
-The recompiled `CATZDLL.DLL` **compiles (0 errors/0 warnings), links zero-
-undefined, and runs its entire Borland C++ RTL startup + far-heap init to
-completion**, returning success from the NE entry (`entry returned ax=0001`).
-Initialization now allocates a single 4 KB heap arena and carves real
-sub-allocations (180/24/296 B) from it — correct Borland far-heap behavior.
+**Both modules are recompiled and cross-linked.** `CATZ.WAD` (the host EXE) and
+`CATZDLL.DLL` (the engine) build into one program that runs the **full Win16
+application startup**: CATZDLL `LibMain` init, then the CATZ.WAD host's WinMain —
+`InitTask → InitApp → SetMessageQueue → CTL3D → RegisterClass → CreateWindow →
+GetSystemMenu → AppendMenu → GetWindowRect` — i.e. it **creates its window** and
+proceeds into engine init. It currently stops at an "Abnormal Program
+Termination" (Borland abort) once it reads config/resources the stub shims
+return empty for (`LoadString`, `GetPrivateProfileString`) — the threshold where
+real resource/config shims + a WndProc bridge + render path are needed.
 
-Two correctness fixes got here:
+How the modules are combined:
+- CATZ.WAD segments are renumbered 60–66 (CATZDLL keeps 1–59); both share one
+  flat image (`gen_image_combined.py`).
+- CATZ.WAD's CATZDLL imports are resolved by ordinal → CATZDLL export entry →
+  lifted function (direct C call), so cross-module calls need no thunks.
+- KERNEL/USER/GDI/CTL3DV2/COMMDLG imports → the shared Win16 shims (IDA-named).
+- `main.c` runs CATZDLL `LibMain` (DLL DGROUP) then the CATZ.WAD entry
+  (host DGROUP/stack).
+
+Correctness fixes that got the engine this far:
 
 1. **386 instruction support** — `0x66` operand-size + `0x0F` two-byte opcodes
    in the shared decoder/lifter (10,210 + 3,429 sites, **0 residual `db 0x66`**).
@@ -96,10 +109,6 @@ Two correctness fixes got here:
    by reading both words into temps before writing. (The "huge-pointer model"
    was a misdiagnosis.)
 
-An **export-call bridge** (`call_export` in `main.c`) drives the engine through
-its far-exported methods; validated by calling `XApt::IsWindowsNT` (ord 1124)
-post-init and getting a clean result.
-
 ### Module architecture (mapped)
 
 ```
@@ -110,10 +119,10 @@ CATZ.WAD  (CATZ, NE EXE, 71 KB)  the real host — WinMain, window, message loop
 CATZDLL.DLL  (615 KB)  the engine — sprites, rendering, 1,263 XApt/CatSprite exports
 ```
 
-Next: recompile **CATZ.WAD** and cross-link it with the lifted CATZDLL (route
-its 94 CATZDLL imports by ordinal → export entry → lifted function), back the
-USER/GDI shims with real Win32/GDI32 for an actual window + WndProc bridge, and
-run its WinMain → window + message loop + engine render → first frame.
+Next: implement real resource/config shims (`LoadString`/`LoadResource` from the
+WAD resource table, profile strings), back USER/GDI with real Win32/GDI32 + a
+WndProc callback bridge (runtime invokes lifted window procs), and drive the
+message loop → engine render (WinG/DIB) → first frame.
 
 ### Pipeline results
 

@@ -45,7 +45,7 @@ def main():
     lines.append(' * Protected-mode NE selectors map to flat-memory bases at runtime.')
     lines.append(' * Placeholder: selector == NE segment index. Replace with a real')
     lines.append(' * selector->base table when the protected-mode memory model lands. */')
-    for n in range(1, 60):  # CATZDLL has 59 segments
+    for n in range(1, 67):  # CATZDLL segs 1-59 + CATZ.WAD segs 60-66
         lines.append(f'#define SEG_{n} ((uint16_t){n})')
     lines.append('')
 

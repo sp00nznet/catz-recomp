@@ -88,28 +88,29 @@ int main(int argc, char *argv[])
     for (uint32_t n = 0; n <= CATZ_NUM_SEG; ++n)
         cpu.sel_base[n] = SEG_SEGMENT_BASE[n];
 
-    /* Initial segment/register state from the NE header. */
-    cpu.ss = CATZ_STACK_SEG ? CATZ_STACK_SEG : CATZ_AUTO_DATA_SEG;
-    cpu.sp = CATZ_STACK_SP ? CATZ_STACK_SP : 0xFFFE;
-    cpu.ds = CATZ_AUTO_DATA_SEG;
-    cpu.es = CATZ_AUTO_DATA_SEG;
-    cpu.cs = CATZ_ENTRY_SEG;
-
     printf("CATZ Recomp - starting\n");
     printf("  image: %s (%.2f MB)\n", img, CATZ_IMAGE_SIZE / 1048576.0);
-    printf("  entry: seg%u:%04X  auto-data: seg%u\n",
-           CATZ_ENTRY_SEG, CATZ_ENTRY_IP, CATZ_AUTO_DATA_SEG);
+    printf("  host entry: seg%u:%04X (CATZ.WAD)  dll-data seg%u  wad-data seg%u\n",
+           CATZ_ENTRY_SEG, CATZ_ENTRY_IP, CATZ_DLL_AUTO_DATA_SEG, CATZ_AUTO_DATA_SEG);
     fflush(stdout);
 
-    seg001_0000(&cpu);  /* NE entry point (DLL init) */
-    printf("entry returned (ax=%04X)\n", cpu.ax);
+    /* 1) Initialize the CATZDLL engine (LibMain) with the DLL's DGROUP in DS. */
+    cpu.ds = cpu.es = CATZ_DLL_AUTO_DATA_SEG;
+    cpu.ss = CATZ_STACK_SEG;
+    cpu.sp = CATZ_STACK_SP ? CATZ_STACK_SP : 0xFFFE;
+    cpu.cs = CATZ_DLL_ENTRY_SEG;
+    seg001_0000(&cpu);                      /* CATZDLL LibMain */
+    printf("CATZDLL init returned (ax=%04X)\n", cpu.ax);
 
-    /* --- Export-call bridge ---
-     * Drive the engine through its exported XApt/CatSprite methods. A far export
-     * is reached by pushing its PASCAL args (left-to-right) then a far return
-     * frame; its RETF pops the frame (+args for `retf N`). Returns AX. */
-    call_export(&cpu, seg045_0000, NULL, 0);   /* XApt IsWindowsNT (ord 1124) */
-    printf("IsWindowsNT() -> %u\n", cpu.ax);
+    /* 2) Run the CATZ.WAD host startup (Borland C0 -> WinMain): window +
+     *    message loop, driving CATZDLL via the cross-module calls already
+     *    resolved in the lifted code. WAD has its own DGROUP + stack. */
+    cpu.ds = cpu.es = CATZ_AUTO_DATA_SEG;
+    cpu.ss = CATZ_STACK_SEG;
+    cpu.sp = CATZ_STACK_SP ? CATZ_STACK_SP : 0xFFFE;
+    cpu.cs = CATZ_ENTRY_SEG;
+    seg060_0000(&cpu);                      /* CATZ.WAD entry (host WinMain) */
+    printf("CATZ.WAD host returned (ax=%04X)\n", cpu.ax);
 
     cpu_free(&cpu);
     return 0;

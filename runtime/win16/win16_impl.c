@@ -154,6 +154,25 @@ void KERNEL_LOCALINIT(CPU *cpu) {
     ret(cpu, 6);
 }
 
+/* ===== KERNEL: task startup =====
+ * InitTask is called once at the very start of a Win16 EXE (Borland C0). It
+ * returns the startup register block the runtime needs; a stub returning AX=0
+ * makes the startup abort. */
+void KERNEL_INITTASK(CPU *cpu) {
+    uint16_t hinst = CATZ_AUTO_DATA_SEG;   /* fake hInstance == WAD DGROUP sel */
+    /* Empty command line in the (fake) PSP at DGROUP:0080: length byte 0, CR. */
+    mem_write8(cpu, hinst, 0x80, 0);
+    mem_write8(cpu, hinst, 0x81, 0x0D);
+    cpu->ax = 1;                 /* success (nonzero) */
+    cpu->cx = 0xFFFE;            /* stack top */
+    cpu->dx = 1;                 /* nCmdShow = SW_SHOWNORMAL */
+    cpu->si = 0;                 /* hPrevInstance = none */
+    cpu->di = hinst;             /* hInstance */
+    cpu->es = hinst; cpu->bx = 0x0080;   /* ES:BX -> command line */
+    cpu->bp = 0;
+    ret(cpu, 0);
+}
+
 /* ===== KERNEL: module / version / task ===== */
 
 void KERNEL_GETWINFLAGS(CPU *cpu) {         /* DX:AX: WF_PMODE|WF_CPU386|WF_ENHANCED */
@@ -216,6 +235,73 @@ void USER_GETTICKCOUNT(CPU *cpu) {          /* DX:AX ms, monotonic so waits end 
 }
 
 void USER_MESSAGEBEEP(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
+
+/* InitApp(hInstance): create the app message queue. Return nonzero on success. */
+void USER_INITAPP(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
+
+/* WaitEvent(hTask): yield to the event system. No-op (return). */
+void KERNEL_WAITEVENT(CPU *cpu) { cpu->ax = 0; ret(cpu, 2); }
+
+/* ===== USER/GDI: window setup (sane fake handles for now) =====
+ * Enough to get the host past window creation; replaced with real Win32-backed
+ * windows + a WndProc bridge when we wire actual rendering. Screen modeled as
+ * 640x480x8 (the Catz target). */
+#define FAKE_HWND   0x0CA7
+#define FAKE_HDC    0x0DC1
+#define FAKE_HANDLE 0x00F0   /* generic non-null GDI/icon/cursor/menu handle */
+
+static void write_rect(CPU *cpu, uint16_t seg, uint16_t off, int l, int t, int r, int b) {
+    mem_write16(cpu, seg, (uint16_t)(off + 0), (uint16_t)l);
+    mem_write16(cpu, seg, (uint16_t)(off + 2), (uint16_t)t);
+    mem_write16(cpu, seg, (uint16_t)(off + 4), (uint16_t)r);
+    mem_write16(cpu, seg, (uint16_t)(off + 6), (uint16_t)b);
+}
+
+void USER_REGISTERCLASS(CPU *cpu)  { cpu->ax = 0xC001; ret(cpu, 4); }   /* class atom */
+void USER_CREATEWINDOW(CPU *cpu)   { cpu->ax = FAKE_HWND; ret(cpu, 30); }
+void USER_GETSYSTEMMENU(CPU *cpu)  { cpu->ax = FAKE_HANDLE; ret(cpu, 4); }
+void USER_APPENDMENU(CPU *cpu)     { cpu->ax = 1; ret(cpu, 10); }
+void USER_LOADICON(CPU *cpu)       { cpu->ax = FAKE_HANDLE; ret(cpu, 6); }
+void USER_GETSYSTEMMETRICS(CPU *cpu){ cpu->ax = 0; ret(cpu, 2); }
+void USER_SETMESSAGEQUEUE(CPU *cpu){ cpu->ax = 1; ret(cpu, 2); }
+void KERNEL_GETWINDOWSDIRECTORY(CPU *cpu) {   /* LPSTR off@2/seg@4, UINT@0 */
+    uint16_t nSize = a16(cpu, 0), off = a16(cpu, 2), seg = a16(cpu, 4);
+    const char *p = "C:\\WINDOWS";
+    uint16_t i = 0;
+    for (; p[i] && i + 1 < nSize; i++) mem_write8(cpu, seg, (uint16_t)(off + i), (uint8_t)p[i]);
+    mem_write8(cpu, seg, (uint16_t)(off + i), 0);
+    cpu->ax = i; ret(cpu, 6);
+}
+
+void USER_GETWINDOWRECT(CPU *cpu) {        /* HWND@4, LPRECT off@0/seg@2 */
+    write_rect(cpu, a16(cpu, 2), a16(cpu, 0), 0, 0, 640, 480);
+    cpu->ax = 1; ret(cpu, 6);
+}
+void USER_GETCLIENTRECT(CPU *cpu) {
+    write_rect(cpu, a16(cpu, 2), a16(cpu, 0), 0, 0, 640, 480);
+    cpu->ax = 1; ret(cpu, 6);
+}
+
+void GDI_GETDEVICECAPS(CPU *cpu) {         /* HDC@2, index@0 */
+    uint16_t idx = a16(cpu, 0);
+    int v = 0;
+    switch (idx) {
+        case 8:  v = 640; break;   /* HORZRES   */
+        case 10: v = 480; break;   /* VERTRES   */
+        case 12: v = 8;   break;   /* BITSPIXEL */
+        case 14: v = 1;   break;   /* PLANES    */
+        case 24: v = 256; break;   /* NUMCOLORS */
+        case 104:v = 256; break;   /* SIZEPALETTE */
+        case 38: v = 0x0100; break;/* RASTERCAPS: RC_PALETTE */
+        default: v = 0;   break;
+    }
+    cpu->ax = (uint16_t)v; ret(cpu, 4);
+}
+void GDI_CREATEIC(CPU *cpu)         { cpu->ax = FAKE_HDC; ret(cpu, 16); }
+void GDI_GETSTOCKOBJECT(CPU *cpu)   { cpu->ax = FAKE_HANDLE; ret(cpu, 2); }
+
+void CTL3DV2_CTL3DREGISTER(CPU *cpu)       { cpu->ax = 1; ret(cpu, 2); }
+void CTL3DV2_CTL3DAUTOSUBCLASS(CPU *cpu)   { cpu->ax = 1; ret(cpu, 2); }
 
 /* ===== INT 21h (DOS services occasionally used by the Borland startup) ===== */
 

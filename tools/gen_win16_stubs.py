@@ -36,9 +36,13 @@ def implemented_names():
     return set(re.findall(r'^void\s+([A-Z0-9_]+)\(CPU\s*\*', text, re.M))
 
 
-def collect_imports(ne):
-    """Return sorted unique list of Win16Import used by import relocations."""
-    seen = {}
+# Modules that are other lifted recomp modules, not Win16 shims: their imports
+# are cross-module calls resolved directly by the lifter, so no stub is emitted.
+CROSS_MODULES = {'CATZDLL'}
+
+
+def collect_imports(ne, seen):
+    """Accumulate Win16Import used by import relocations into `seen` (by name)."""
     for seg in ne.segments:
         if not seg.is_code:
             continue
@@ -46,15 +50,22 @@ def collect_imports(ne):
             if (r.flags & 3) not in (1, 2):
                 continue
             mod = module_name(ne, r.module_idx)
+            if mod.upper() in CROSS_MODULES:
+                continue
             imp = get_import(mod, r.ordinal)
             seen[imp.name] = imp
-    return [seen[k] for k in sorted(seen)]
+    return seen
 
 
 def main():
-    exe = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'game', 'CATZDLL.DLL')
-    ne = parse_ne(exe)
-    imports = collect_imports(ne)
+    # Union the import surface of every module that shares the shim layer.
+    exes = sys.argv[1:] or [os.path.join(ROOT, 'game', 'CATZDLL.DLL'),
+                            os.path.join(ROOT, 'game', 'CATZ.WAD')]
+    seen = {}
+    for exe in exes:
+        if os.path.exists(exe):
+            collect_imports(parse_ne(exe), seen)
+    imports = [seen[k] for k in sorted(seen)]
 
     by_mod = {}
     for imp in imports:
