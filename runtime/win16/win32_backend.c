@@ -81,6 +81,7 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
  * fail creation, so we DefWindowProc them. Runtime messages (paint, timers,
  * input, command) are forwarded to the guest WNDPROC. */
 static int forward_to_guest(UINT msg) {
+    if (getenv("CATZ_NO_WNDPROC")) return 0;   /* diagnostic: never call guest */
     switch (msg) {
         case WM_NCCREATE: case WM_CREATE: case WM_NCCALCSIZE:
         case WM_GETMINMAXINFO: case WM_NCDESTROY: case WM_DESTROY:
@@ -127,6 +128,7 @@ void USER_REGISTERCLASS(CPU *cpu) {
 }
 
 void USER_CREATEWINDOW(CPU *cpu) {
+    if (getenv("CATZ_FAKE_WIN")) { cpu->ax = 0x0CA7; b_ret(cpu, 30); return; }
     HWND h = CreateWindowExA(0, "CatzRecompWnd", "Catz (recomp)",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
         NULL, NULL, GetModuleHandle(NULL), NULL);
