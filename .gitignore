@@ -21,3 +21,4 @@ __pycache__/
 # Editor
 *.swp
 .DS_Store
+build_wx/
