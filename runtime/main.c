@@ -44,6 +44,27 @@ unsigned g_fn_ring_pos = 0;
  * code (the registered window procedure) on delivered messages. */
 CPU *g_cpu = NULL;
 
+#ifdef CATZ_WATCH_SP
+/* See cpu.h: flag the first guest sp upward jump >0x100 (imbalanced callee). */
+void catz_sp_check(const char *nm)
+{
+    static uint16_t last = 0xFFFE; static int armed = 0, fired = 0;
+    uint16_t sp = g_cpu ? g_cpu->sp : 0xFFFE;
+    if (sp < 0xF000) armed = 1;
+    if (!fired && armed && sp > last && (uint16_t)(sp - last) > 0x100 && sp > 0xFD00) {
+        fired = 1;
+        fprintf(stderr, "[SP-RISE] at %s: sp %04X -> %04X (+%04X). recent:",
+                nm, last, sp, (uint16_t)(sp - last));
+        for (int i = 10; i > 0; i--) {
+            const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+            if (r) fprintf(stderr, " %s", r + 3);
+        }
+        fprintf(stderr, "\n");
+    }
+    last = sp;
+}
+#endif
+
 void dump_fn_ring(int n)
 {
     if (n <= 0 || n > (int)CATZ_FN_RING_SIZE) n = (int)CATZ_FN_RING_SIZE;

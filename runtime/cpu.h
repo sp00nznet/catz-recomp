@@ -31,7 +31,14 @@
 extern const char *g_fn_ring[CATZ_FN_RING_SIZE];
 extern unsigned g_fn_ring_pos;
 void dump_fn_ring(int n);
-#ifdef CATZ_TRACE_FN
+#ifdef CATZ_WATCH_SP
+/* Function-entry stack-rise detector: flags the first time guest sp jumps UP
+ * sharply (a callee returned with imbalanced sp) — pinpoints the bad epilogue/
+ * purge. Defined in main.c (needs g_cpu). */
+void catz_sp_check(const char *nm);
+#define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); \
+    catz_sp_check(n); } while (0)
+#elif defined(CATZ_TRACE_FN)
 #define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); \
     fprintf(stderr, "FN %s\n", (n)); } while (0)
 #else
