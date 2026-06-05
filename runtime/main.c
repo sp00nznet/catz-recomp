@@ -38,6 +38,18 @@ void dump_fn_ring(int n)
     fprintf(stderr, "--- end (total calls=%u) ---\n", g_fn_ring_pos);
 }
 
+/* Call a far-exported lifted function. argw holds arg words in PASCAL push
+ * order (left-to-right); a far return frame is pushed so the callee's RETF
+ * balances. Returns AX (DX:AX for 32-bit/far results — read cpu->dx for hi). */
+static uint16_t call_export(CPU *cpu, void (*fn)(CPU *), const uint16_t *argw, int nwords)
+{
+    for (int i = 0; i < nwords; i++) push16(cpu, argw[i]);
+    push16(cpu, cpu->cs);
+    push16(cpu, 0);
+    fn(cpu);
+    return cpu->ax;
+}
+
 static int load_image(CPU *cpu, const char *path)
 {
     FILE *f = fopen(path, "rb");
@@ -90,8 +102,15 @@ int main(int argc, char *argv[])
     fflush(stdout);
 
     seg001_0000(&cpu);  /* NE entry point (DLL init) */
-
     printf("entry returned (ax=%04X)\n", cpu.ax);
+
+    /* --- Export-call bridge ---
+     * Drive the engine through its exported XApt/CatSprite methods. A far export
+     * is reached by pushing its PASCAL args (left-to-right) then a far return
+     * frame; its RETF pops the frame (+args for `retf N`). Returns AX. */
+    call_export(&cpu, seg045_0000, NULL, 0);   /* XApt IsWindowsNT (ord 1124) */
+    printf("IsWindowsNT() -> %u\n", cpu.ax);
+
     cpu_free(&cpu);
     return 0;
 }

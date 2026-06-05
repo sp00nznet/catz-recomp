@@ -96,8 +96,24 @@ Two correctness fixes got here:
    by reading both words into temps before writing. (The "huge-pointer model"
    was a misdiagnosis.)
 
-Next: a host that calls the exported XApt entry points + a USER message loop +
-GDI/WinG rendering → first frame.
+An **export-call bridge** (`call_export` in `main.c`) drives the engine through
+its far-exported methods; validated by calling `XApt::IsWindowsNT` (ord 1124)
+post-init and getting a clean result.
+
+### Module architecture (mapped)
+
+```
+CATZ.EXE  (CATZLOAD, 30 KB)  dependency-check launcher → WinExec("CATZ.WAD …")
+CATZ.WAD  (CATZ, NE EXE, 71 KB)  the real host — WinMain, window, message loop;
+                                 imports CATZDLL (670 refs/94 ord), USER (362/81),
+                                 GDI, COMMDLG, CTL3DV2
+CATZDLL.DLL  (615 KB)  the engine — sprites, rendering, 1,263 XApt/CatSprite exports
+```
+
+Next: recompile **CATZ.WAD** and cross-link it with the lifted CATZDLL (route
+its 94 CATZDLL imports by ordinal → export entry → lifted function), back the
+USER/GDI shims with real Win32/GDI32 for an actual window + WndProc bridge, and
+run its WinMain → window + message loop + engine render → first frame.
 
 ### Pipeline results
 
