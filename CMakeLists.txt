@@ -32,5 +32,5 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/runtime/main.c" AND SEGMENT_SOURCES)
     add_executable(catz runtime/main.c)
     target_compile_definitions(catz PRIVATE
         CATZ_IMAGE_PATH="${CMAKE_SOURCE_DIR}/build_data/mem_image.bin")
-    target_link_libraries(catz catz_segments catz_runtime m)
+    target_link_libraries(catz catz_segments catz_runtime m user32 gdi32)
 endif()

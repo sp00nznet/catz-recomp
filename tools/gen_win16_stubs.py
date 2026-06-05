@@ -25,15 +25,18 @@ from ne_parse import parse_ne
 from win16 import get_import, module_name, get_purge
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-IMPL_C = os.path.join(ROOT, 'runtime', 'win16', 'win16_impl.c')
+IMPL_FILES = [os.path.join(ROOT, 'runtime', 'win16', 'win16_impl.c'),
+              os.path.join(ROOT, 'runtime', 'win16', 'win32_backend.c')]
 
 
 def implemented_names():
-    """Names hand-implemented in win16_impl.c (skip generating stubs for them)."""
-    if not os.path.exists(IMPL_C):
-        return set()
-    text = open(IMPL_C, encoding='utf-8', errors='replace').read()
-    return set(re.findall(r'^void\s+([A-Z0-9_]+)\(CPU\s*\*', text, re.M))
+    """Names hand-implemented in the runtime (skip generating stubs for them)."""
+    names = set()
+    for path in IMPL_FILES:
+        if os.path.exists(path):
+            text = open(path, encoding='utf-8', errors='replace').read()
+            names |= set(re.findall(r'^void\s+([A-Za-z0-9_]+)\(CPU\s*\*', text, re.M))
+    return names
 
 
 # Modules that are other lifted recomp modules, not Win16 shims: their imports

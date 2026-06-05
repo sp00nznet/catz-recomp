@@ -236,6 +236,14 @@ void USER_GETTICKCOUNT(CPU *cpu) {          /* DX:AX ms, monotonic so waits end 
 
 void USER_MESSAGEBEEP(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
 
+/* OutputDebugString(LPCSTR): surface the engine's own debug trace. */
+void KERNEL_OUTPUTDEBUGSTRING(CPU *cpu) {
+    uint16_t off = a16(cpu, 0), seg = a16(cpu, 2);
+    char s[256]; read_asciiz(cpu, seg, off, s, sizeof(s));
+    fprintf(stderr, "[OutputDebugString] %s", s);
+    cpu->ax = 0; ret(cpu, 4);
+}
+
 /* InitApp(hInstance): create the app message queue. Return nonzero on success. */
 void USER_INITAPP(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
 
@@ -257,8 +265,7 @@ static void write_rect(CPU *cpu, uint16_t seg, uint16_t off, int l, int t, int r
     mem_write16(cpu, seg, (uint16_t)(off + 6), (uint16_t)b);
 }
 
-void USER_REGISTERCLASS(CPU *cpu)  { cpu->ax = 0xC001; ret(cpu, 4); }   /* class atom */
-void USER_CREATEWINDOW(CPU *cpu)   { cpu->ax = FAKE_HWND; ret(cpu, 30); }
+/* USER_REGISTERCLASS, USER_CREATEWINDOW: real Win32 in win32_backend.c */
 void USER_GETSYSTEMMENU(CPU *cpu)  { cpu->ax = FAKE_HANDLE; ret(cpu, 4); }
 void USER_APPENDMENU(CPU *cpu)     { cpu->ax = 1; ret(cpu, 10); }
 void USER_LOADICON(CPU *cpu)       { cpu->ax = FAKE_HANDLE; ret(cpu, 6); }

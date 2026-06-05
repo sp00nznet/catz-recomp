@@ -26,6 +26,10 @@
 const char *g_fn_ring[CATZ_FN_RING_SIZE];
 unsigned g_fn_ring_pos = 0;
 
+/* Global CPU pointer so the Win32 backend / WndProc bridge can invoke guest
+ * code (the registered window procedure) on delivered messages. */
+CPU *g_cpu = NULL;
+
 void dump_fn_ring(int n)
 {
     if (n <= 0 || n > (int)CATZ_FN_RING_SIZE) n = (int)CATZ_FN_RING_SIZE;
@@ -69,6 +73,7 @@ int main(int argc, char *argv[])
 
     CPU cpu;
     cpu_init(&cpu);
+    g_cpu = &cpu;
 
     /* Flat image + a heap for dynamically allocated selectors (past the image).
      * 24 MB is period-appropriate (Catz targeted ~8 MB machines): it bounds the
