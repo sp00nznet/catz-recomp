@@ -77,6 +77,81 @@ _SEED = {
     },
 }
 
+# Win16 PASCAL stack-purge bytes per call (callee pops args). WORD/UINT/HANDLE/
+# BOOL/int = 2; DWORD/LONG/COLORREF/far pointer = 4. Each shim must do
+# `cpu->sp += 4 (far retaddr) + purge`, or `retf` boundaries corrupt. Keyed by
+# (MODULE, API). Functions not listed default to 0 with a runtime warning.
+PURGE = {
+    # ---- KERNEL ----
+    ('KERNEL', 'GLOBALALLOC'): 6, ('KERNEL', 'GLOBALREALLOC'): 8,
+    ('KERNEL', 'GLOBALFREE'): 2, ('KERNEL', 'GLOBALLOCK'): 2,
+    ('KERNEL', 'GLOBALUNLOCK'): 2, ('KERNEL', 'GLOBALSIZE'): 2,
+    ('KERNEL', 'GLOBALHANDLE'): 2, ('KERNEL', 'GLOBALFLAGS'): 2,
+    ('KERNEL', 'LOCALINIT'): 6, ('KERNEL', 'GETWINFLAGS'): 0,
+    ('KERNEL', 'GETVERSION'): 0, ('KERNEL', 'GETCURRENTTASK'): 0,
+    ('KERNEL', 'GETMODULEUSAGE'): 2, ('KERNEL', 'GETMODULEFILENAME'): 8,
+    ('KERNEL', 'GETMODULEHANDLE'): 4, ('KERNEL', 'FINDRESOURCE'): 10,
+    ('KERNEL', 'LOADRESOURCE'): 4, ('KERNEL', 'LOCKRESOURCE'): 2,
+    ('KERNEL', 'FREERESOURCE'): 2, ('KERNEL', 'SIZEOFRESOURCE'): 4,
+    ('KERNEL', 'OPENFILE'): 10, ('KERNEL', '_LCLOSE'): 2, ('KERNEL', '_LREAD'): 8,
+    ('KERNEL', '_LLSEEK'): 8, ('KERNEL', '_LOPEN'): 6, ('KERNEL', '_LWRITE'): 8,
+    ('KERNEL', '_HREAD'): 10, ('KERNEL', '_LCREAT'): 6,
+    ('KERNEL', 'LOADLIBRARY'): 4, ('KERNEL', 'FREELIBRARY'): 2,
+    ('KERNEL', 'OUTPUTDEBUGSTRING'): 4, ('KERNEL', 'GETPRIVATEPROFILEINT'): 14,
+    ('KERNEL', 'GETPRIVATEPROFILESTRING'): 22,
+    ('KERNEL', 'WRITEPRIVATEPROFILESTRING'): 16, ('KERNEL', 'GETPROCADDRESS'): 6,
+    ('KERNEL', 'LSTRLEN'): 4, ('KERNEL', 'LSTRCPY'): 8, ('KERNEL', 'LSTRCAT'): 8,
+    # ---- USER ----
+    ('USER', 'MESSAGEBOX'): 12, ('USER', 'MESSAGEBEEP'): 2, ('USER', 'SETTIMER'): 10,
+    ('USER', 'KILLTIMER'): 4, ('USER', 'GETTICKCOUNT'): 0, ('USER', 'PEEKMESSAGE'): 12,
+    ('USER', 'SENDMESSAGE'): 10, ('USER', 'TRANSLATEMESSAGE'): 4,
+    ('USER', 'DISPATCHMESSAGE'): 4, ('USER', 'POSTQUITMESSAGE'): 2,
+    ('USER', 'SETCLASSWORD'): 6, ('USER', 'GETWINDOWLONG'): 4,
+    ('USER', 'SETWINDOWLONG'): 8, ('USER', 'CLIPCURSOR'): 4, ('USER', 'LOADCURSOR'): 6,
+    ('USER', 'LOADSTRING'): 10, ('USER', 'GETSYSCOLOR'): 2, ('USER', 'RELEASECAPTURE'): 0,
+    ('USER', 'ENUMTASKWINDOWS'): 10, ('USER', 'ENUMWINDOWS'): 8, ('USER', 'GETFOCUS'): 0,
+    ('USER', 'CREATEDIALOGPARAM'): 16, ('USER', 'GETASYNCKEYSTATE'): 2,
+    ('USER', 'SELECTPALETTE'): 6, ('USER', 'REALIZEPALETTE'): 2,
+    ('USER', 'GETDESKTOPWINDOW'): 0, ('USER', 'REDRAWWINDOW'): 10,
+    ('USER', 'GETWINDOWRECT'): 6, ('USER', 'GETCLIENTRECT'): 6,
+    ('USER', 'SETWINDOWTEXT'): 6, ('USER', 'SHOWWINDOW'): 4, ('USER', 'DESTROYWINDOW'): 2,
+    ('USER', 'MOVEWINDOW'): 12, ('USER', 'SETSCROLLPOS'): 8, ('USER', 'SETSCROLLRANGE'): 10,
+    ('USER', 'GETDC'): 2, ('USER', 'RELEASEDC'): 4, ('USER', 'SETCURSOR'): 2,
+    ('USER', 'SETCURSORPOS'): 4, ('USER', 'OFFSETRECT'): 8, ('USER', 'FRAMERECT'): 8,
+    ('USER', 'DRAWTEXT'): 14, ('USER', 'DIALOGBOX'): 12, ('USER', 'ENDDIALOG'): 4,
+    ('USER', 'CREATEDIALOG'): 12, ('USER', 'GETDLGITEM'): 4, ('USER', 'SETDLGITEMTEXT'): 8,
+    ('USER', 'GETDLGITEMTEXT'): 10, ('USER', 'SETDLGITEMINT'): 8, ('USER', 'GETDLGITEMINT'): 10,
+    ('USER', 'CLIENTTOSCREEN'): 6, ('USER', 'GETWINDOWRECT'): 6,
+    # ---- GDI ----
+    ('GDI', 'SETBKCOLOR'): 6, ('GDI', 'SETBKMODE'): 4, ('GDI', 'SETTEXTCOLOR'): 6,
+    ('GDI', 'CREATEIC'): 16, ('GDI', 'LINETO'): 6, ('GDI', 'MOVETO'): 6,
+    ('GDI', 'ELLIPSE'): 10, ('GDI', 'RECTANGLE'): 10, ('GDI', 'PATBLT'): 14,
+    ('GDI', 'BITBLT'): 20, ('GDI', 'STRETCHBLT'): 24, ('GDI', 'POLYGON'): 8,
+    ('GDI', 'CREATEPALETTE'): 4, ('GDI', 'GETSYSTEMPALETTEUSE'): 2,
+    ('GDI', 'GETSYSTEMPALETTEENTRIES'): 10, ('GDI', 'GETPALETTEENTRIES'): 10,
+    ('GDI', 'STRETCHDIBITS'): 32, ('GDI', 'GETDIBITS'): 18, ('GDI', 'CREATEDIBITMAP'): 20,
+    ('GDI', 'SETDIBITSTODEVICE'): 28, ('GDI', 'SELECTOBJECT'): 4,
+    ('GDI', 'SETVIEWPORTORGEX'): 10, ('GDI', 'CREATECOMPATIBLEBITMAP'): 6,
+    ('GDI', 'CREATECOMPATIBLEDC'): 2, ('GDI', 'CREATEFONTINDIRECT'): 4,
+    ('GDI', 'CREATEPEN'): 8, ('GDI', 'CREATESOLIDBRUSH'): 4, ('GDI', 'DELETEDC'): 2,
+    ('GDI', 'DELETEOBJECT'): 2, ('GDI', 'GETDEVICECAPS'): 4, ('GDI', 'GETOBJECT'): 8,
+    ('GDI', 'GETSTOCKOBJECT'): 2, ('GDI', 'GETTEXTEXTENT'): 8,
+    # ---- MMSYSTEM ----
+    ('MMSYSTEM', 'SNDPLAYSOUND'): 6, ('MMSYSTEM', 'TIMEGETDEVCAPS'): 6,
+    ('MMSYSTEM', 'TIMEGETTIME'): 0,
+    # ---- TOOLHELP ----
+    ('TOOLHELP', 'GLOBALENTRYHANDLE'): 6, ('TOOLHELP', 'TIMERCOUNT'): 4,
+    # ---- WIN87EM ---- (FP emulator hook; not a PASCAL call, no arg purge)
+    ('WIN87EM', '__FPMATH'): 0,
+}
+
+
+def get_purge(module: str, api: str):
+    """Return stack-purge bytes for a (module, api) Win16 call, or None if
+    unknown (SOS/WinG and rare APIs - filled in as they are reached)."""
+    return PURGE.get(((module or '').upper(), (api or '').upper()))
+
+
 _loaded_map = None
 
 

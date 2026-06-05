@@ -18,11 +18,22 @@ Run: python tools/gen_win16_stubs.py game/CATZDLL.DLL
 import sys
 import os
 
+import re
+
 sys.path.insert(0, os.path.dirname(__file__))
 from ne_parse import parse_ne
-from win16 import get_import, module_name
+from win16 import get_import, module_name, get_purge
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+IMPL_C = os.path.join(ROOT, 'runtime', 'win16', 'win16_impl.c')
+
+
+def implemented_names():
+    """Names hand-implemented in win16_impl.c (skip generating stubs for them)."""
+    if not os.path.exists(IMPL_C):
+        return set()
+    text = open(IMPL_C, encoding='utf-8', errors='replace').read()
+    return set(re.findall(r'^void\s+([A-Z0-9_]+)\(CPU\s*\*', text, re.M))
 
 
 def collect_imports(ne):
@@ -96,18 +107,34 @@ def main():
     c.append('#else')
     c.append('#define WIN16_LOG(n) ((void)0)')
     c.append('#endif')
+    c.append('/* Loud warning the first time an unknown-purge stub runs: its stack')
+    c.append(' * cleanup is a guess and may corrupt. Add it to PURGE in win16.py. */')
+    c.append('#define WIN16_UNKNOWN(n) do { static int _w; if (!_w) { _w = 1; \\')
+    c.append('    fprintf(stderr, "[win16] *** %s: unknown stack purge (guessed 0)\\n", (n)); \\')
+    c.append('    } } while (0)')
     c.append('')
     c.append('void int_handler(CPU *cpu, int int_num) {')
     c.append('    (void)cpu; WIN16_LOG("int_handler");')
     c.append('    fprintf(stderr, "[int] unhandled INT 0x%02X\\n", int_num);')
     c.append('}')
-    c.append('void dos_int21(CPU *cpu) { (void)cpu; WIN16_LOG("dos_int21"); }')
     c.append('')
+
+    impl = implemented_names()
+    skipped = 0
     for mod in sorted(by_mod):
+        emitted = [imp for imp in by_mod[mod] if imp.name not in impl]
+        skipped += len(by_mod[mod]) - len(emitted)
+        if not emitted:
+            continue
         c.append(f'/* ===== {mod} ===== */')
-        for imp in by_mod[mod]:
+        for imp in emitted:
+            purge = get_purge(imp.module, imp.api)
+            if purge is None:
+                clean = f'cpu->sp += 4; WIN16_UNKNOWN("{imp.api}");'
+            else:
+                clean = f'cpu->sp += 4 + {purge};'
             c.append(f'void {imp.name}(CPU *cpu) {{ (void)cpu; '
-                     f'WIN16_LOG("{imp.api}"); cpu->ax = 0; }}')
+                     f'WIN16_LOG("{imp.api}"); cpu->ax = 0; {clean} }}')
         c.append('')
 
     with open(os.path.join(ROOT, 'runtime', 'win16', 'win16_stubs.c'), 'w',

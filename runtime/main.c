@@ -42,8 +42,11 @@ int main(int argc, char *argv[])
     CPU cpu;
     cpu_init(&cpu);
 
-    /* Flat image + a heap for dynamically allocated selectors (past the image). */
-    uint32_t total = CATZ_IMAGE_SIZE + (128u << 20);  /* +128 MB heap */
+    /* Flat image + a heap for dynamically allocated selectors (past the image).
+     * 24 MB is period-appropriate (Catz targeted ~8 MB machines): it bounds the
+     * engine's free-memory probe (GlobalAlloc-until-fail) to a realistic count
+     * instead of the tens of thousands a huge heap would report. */
+    uint32_t total = CATZ_IMAGE_SIZE + (24u << 20);  /* +24 MB heap */
     if (!cpu_alloc_mem(&cpu, total)) {
         fprintf(stderr, "Failed to allocate %u bytes\n", total);
         return 1;

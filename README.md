@@ -75,21 +75,20 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status: Compiles, Links Clean, Runs Into DLL Init
+## Status: Runs Into Borland CRT Heap Init; Blocked On 0x66 Decode
 
 The full lifted engine **compiles (0 errors, 0 warnings), links with zero
-undefined symbols, and executes** — it loads the flat image, sets up the
-selector→base map, calls the NE entry (`seg001_0000`, DLL init), and flows
-through the Win16 init sequence before stalling on stubbed services:
+undefined symbols, and executes** the NE entry (`seg001_0000`). With the
+init-path Win16 shims implemented (a real free-list `GlobalAlloc`/`Free`/
+`ReAlloc`, module/version/task queries, `MessageBox`, `GetTickCount`, `INT 21h`),
+it now reaches the **Borland C++ RTL far-heap initialization**.
 
-```
-dos_int21 → GETWINFLAGS → GLOBALALLOC → GETCURRENTTASK
-          → ENUMTASKWINDOWS → MESSAGEBOX → GETMODULEFILENAME → (spins)
-```
-
-The stall is a bring-up artifact, not a defect: every Win16 import is a no-op
-returning `ax=0`, so `GLOBALALLOC` yields NULL and the task/window flow spins.
-From here it is Win16 API *implementation*, not reverse engineering.
+It halts there with `MessageBox("Out of memory in _setargv")` — and that is
+fully diagnosed: the heap-init loop allocates 4 KB blocks counted/sized by
+**32-bit (386) instructions carrying the `0x66` operand-size prefix**, which the
+16-bit decoder currently drops (emitted as `db 0x66`). The dropped counter math
+makes the loop allocate until OOM instead of its real bound. So bring-up is now
+**blocked on one well-scoped decoder gap**, not on shims.
 
 ### Pipeline results
 
@@ -102,16 +101,30 @@ From here it is Win16 API *implementation*, not reverse engineering.
 | Glue | flat image (705 KB, 14,495 relocs applied); **0 unresolved stubs** |
 | Build | `catz.exe` (12.6 MB), 0 errors / 0 warnings, link-clean |
 
-### Remaining work (debug loop, prioritized)
+### Remaining work (prioritized)
 
-1. **Implement Win16 shims**, init-path first: GlobalAlloc/Lock/Free (real
-   heap+selector alloc via `cpu.h`), GetModuleFileName, task/window helpers,
-   MessageBox (log + IDOK), GetTickCount (increment).
-2. **USER message loop + GDI/WinG blit** → first rendered frame.
-3. **0x66 32-bit operand prefix** in `decode16.py` (8,110 sites) — currently
-   emitted as `db 0x66`; needs 32-bit operand decoding.
-4. **`__AHSHIFT`/`__AHINCR`** huge-pointer constants (KERNEL @113, 250×) for
-   correct far-pointer arithmetic in the flat memory model.
+1. **0x66 32-bit operand prefix** in `decode16.py` (~10,210 sites) — **THE
+   blocker.** The engine is compiled with pervasive 386 codegen (push/pop/mov/
+   add/sub/shift/imul/cdq/cwde on `eax`–`edi`, `mov r32,imm32`). Add `0x66`
+   (and `0x67` addr-size) prefix handling to the decoder, emit 32-bit C in the
+   lifter (`cpu.h` already has `eax`–`edi` unions), re-lift, rebuild. Shared
+   toolbox change — guard against elfish regressions.
+2. **USER message loop + GDI/WinG blit** → first rendered frame (once past CRT
+   init): GetDC/BeginPaint, CreateDIBitmap/BitBlt/StretchDIBits, palette,
+   WinG fast blit → SDL2/GDI32.
+3. **`__AHSHIFT`/`__AHINCR`** huge-pointer arithmetic (KERNEL @113, 250×) for
+   correct far-pointer math in the flat memory model.
+4. SOS audio + remaining Win16 shims as reached (purge bytes are filled in
+   `tools/win16.py`; stubs warn loudly on unknown purge).
 5. Minor lifter ops: `rcl`/`rcr` (111), `sahf` (68), 7 FPU TODOs.
+
+### Implemented Win16 shims (`runtime/win16/win16_impl.c`)
+
+`GlobalAlloc/Free/ReAlloc/Lock/Unlock/Size/Handle` (free-list allocator over the
+flat heap; handle == selector), `LocalInit`, `GetWinFlags/GetVersion/
+GetCurrentTask/GetModuleUsage/GetModuleFileName`, `MessageBox/MessageBeep/
+EnumTaskWindows/GetTickCount`, and `INT 21h` (exit, version). All other imports
+are generated stubs with correct PASCAL stack purge (`tools/gen_win16_stubs.py`
++ the `PURGE` table in `tools/win16.py`).
 
 See `analysis/` for the import surface, segment clusters, and decode summary.
