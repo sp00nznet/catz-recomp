@@ -184,12 +184,8 @@ static inline void mem_write16(CPU *cpu, uint16_t seg, uint16_t off, uint16_t va
         static int _logged = 0;
         if (!_logged && cpu->sp != 0 && cpu->sp < 0x0600) {
             _logged = 1;
-            fprintf(stderr, "[STACK-LOW] sp=%04X ring:", cpu->sp);
-            for (int _i = 20; _i > 0; _i--) {
-                const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)_i) & (CATZ_FN_RING_SIZE - 1)];
-                if (nm) fprintf(stderr, " %s", nm + 3);
-            }
-            fprintf(stderr, "\n");
+            fprintf(stderr, "[STACK-LOW] sp=%04X — histogram of the drain loop:\n", cpu->sp);
+            dump_fn_ring(0);
         }
     }
     if (seg == 0x42 && (off == 0x14 || (off >= 0xFFBC && off <= 0xFFC0))) {
