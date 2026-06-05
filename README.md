@@ -75,20 +75,24 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status: Runs Into Borland CRT Heap Init; Blocked On 0x66 Decode
+## Status: 386 Decode Complete; Blocked On Borland Far-Heap Model
 
 The full lifted engine **compiles (0 errors, 0 warnings), links with zero
-undefined symbols, and executes** the NE entry (`seg001_0000`). With the
-init-path Win16 shims implemented (a real free-list `GlobalAlloc`/`Free`/
-`ReAlloc`, module/version/task queries, `MessageBox`, `GetTickCount`, `INT 21h`),
-it now reaches the **Borland C++ RTL far-heap initialization**.
+undefined symbols, and executes** the NE entry (`seg001_0000`) through the
+init-path Win16 shims into the **Borland C++ RTL far-heap initialization**.
 
-It halts there with `MessageBox("Out of memory in _setargv")` — and that is
-fully diagnosed: the heap-init loop allocates 4 KB blocks counted/sized by
-**32-bit (386) instructions carrying the `0x66` operand-size prefix**, which the
-16-bit decoder currently drops (emitted as `db 0x66`). The dropped counter math
-makes the loop allocate until OOM instead of its real bound. So bring-up is now
-**blocked on one well-scoped decoder gap**, not on shims.
+The **`0x66` 32-bit operand-size prefix and `0x0F` two-byte opcodes are now
+fully implemented** in the shared decoder + lifter (10,210 `0x66` + 3,429 `0x0F`
+sites — **0 residual `db 0x66`**, 0 unhandled). The engine's pervasive 386
+codegen (push/pop/mov/add/sub/shift/imul/cdq/cwde on `eax`–`edi`, movsx/movzx,
+setcc, jcc-near) lifts to correct 32-bit C.
+
+It now halts at `MessageBox("Out of memory in _setargv")` for a **different,
+deeper reason**: `_setargv`'s heap-init loop `GlobalAlloc`s 4 KB moveable blocks
+until failure, but the Borland far-heap manager does not recognize the blocks as
+usable (even 6145 blocks = 24 MB reads as "not enough"). The arena linkage
+relies on **huge-pointer (`__AHINCR`/`__AHSHIFT`) selector arithmetic** — the
+next bring-up blocker (a memory-model problem, not a decode gap).
 
 ### Pipeline results
 
@@ -103,20 +107,24 @@ makes the loop allocate until OOM instead of its real bound. So bring-up is now
 
 ### Remaining work (prioritized)
 
-1. **0x66 32-bit operand prefix** in `decode16.py` (~10,210 sites) — **THE
-   blocker.** The engine is compiled with pervasive 386 codegen (push/pop/mov/
-   add/sub/shift/imul/cdq/cwde on `eax`–`edi`, `mov r32,imm32`). Add `0x66`
-   (and `0x67` addr-size) prefix handling to the decoder, emit 32-bit C in the
-   lifter (`cpu.h` already has `eax`–`edi` unions), re-lift, rebuild. Shared
-   toolbox change — guard against elfish regressions.
-2. **USER message loop + GDI/WinG blit** → first rendered frame (once past CRT
-   init): GetDC/BeginPaint, CreateDIBitmap/BitBlt/StretchDIBits, palette,
-   WinG fast blit → SDL2/GDI32.
-3. **`__AHSHIFT`/`__AHINCR`** huge-pointer arithmetic (KERNEL @113, 250×) for
-   correct far-pointer math in the flat memory model.
-4. SOS audio + remaining Win16 shims as reached (purge bytes are filled in
-   `tools/win16.py`; stubs warn loudly on unknown purge).
-5. Minor lifter ops: `rcl`/`rcr` (111), `sahf` (68), 7 FPU TODOs.
+1. **Borland far-heap / huge-pointer model** — **THE blocker.** Implement the
+   `__AHINCR`/`__AHSHIFT` huge-pointer model so consecutive selectors map to
+   consecutive 64 KB flat regions and the Borland far-heap arena links/walks
+   correctly; or RE the exact arena format the RTL expects. Unblocks `_setargv`.
+2. **USER message loop + GDI/WinG blit** → first rendered frame: GetDC/
+   BeginPaint, CreateDIBitmap/BitBlt/StretchDIBits, palette, WinG → SDL2/GDI32.
+3. SOS audio + remaining Win16 shims as reached (purge bytes in `tools/win16.py`;
+   stubs warn loudly on unknown purge).
+4. Minor lifter ops: `shld`/`shrd` (201, decoded but TODO), `rcl`/`rcr`, `sahf`.
+
+### Done: 386 instruction support (shared toolbox)
+
+`0x66` operand-size and `0x0F` two-byte opcodes are implemented in
+`pcrecomp/tools/disasm/decode16.py` + `lift/lift16.py` (REG32/IMM32 operand
+types, 32-bit `_read`/`_write`, `flags_*32`/`push32`/`pop32` in `cpu.h`, plus
+movsx/movzx/setcc/2-op-imul/bt/string-`d`). Backward-compatible: without a
+`0x66` prefix decode is byte-identical, so elfish is unaffected (re-lift +
+glue-regen needed only if elfish is rebuilt; its `cpu.h` already updated).
 
 ### Implemented Win16 shims (`runtime/win16/win16_impl.c`)
 
