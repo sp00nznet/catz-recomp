@@ -537,6 +537,10 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
     print('#include "segments.h"')
     print()
 
+    # CS-relative memory operands must read from THIS segment, not runtime cpu->cs.
+    import lift16
+    lift16._CODE_SEG = seg.index
+
     # Lift each function
     lifter = NELifter(ne, seg)
     lifter.xmod = xmod or {}
