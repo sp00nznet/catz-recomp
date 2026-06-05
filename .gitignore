@@ -1,0 +1,23 @@
+# Original game binaries (copyrighted — do not redistribute)
+game/
+
+# Generated build artifacts
+build/
+build_data/*.bin
+
+# IDA databases
+*.i64
+*.idb
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+*.swp
+.DS_Store

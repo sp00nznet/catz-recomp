@@ -1,0 +1,208 @@
+=== Win16 Import Usage (the shim TODO list) ===
+
+--- By module (total reference count) ---
+  KERNEL        468 refs,  32 unique ordinals
+  GDI           235 refs,  32 unique ordinals
+  USER          200 refs,  51 unique ordinals
+  SOSLIB03       48 refs,  37 unique ordinals
+  WIN87EM         6 refs,   1 unique ordinals
+  TOOLHELP        5 refs,   2 unique ordinals
+  WING            5 refs,   4 unique ordinals
+  MMSYSTEM        4 refs,   3 unique ordinals
+
+--- By import (module, ordinal, name, count) ---
+  KERNEL     @113   __AHSHIFT                      250x
+  GDI        @45    SELECTOBJECT                    88x
+  KERNEL     @19    GLOBALUNLOCK                    35x
+  GDI        @69    DELETEOBJECT                    32x
+  KERNEL     @18    GLOBALLOCK                      32x
+  USER       @180   GETSYSCOLOR                     23x
+  KERNEL     @17    GLOBALFREE                      21x
+  KERNEL     @15    GLOBALALLOC                     20x
+  KERNEL     @21    GLOBALHANDLE                    18x
+  USER       @249   GETASYNCKEYSTATE                17x
+  USER       @13    GETTICKCOUNT                    14x
+  GDI        @87    GETSTOCKOBJECT                  13x
+  GDI        @66    CREATESOLIDBRUSH                12x
+  USER       @1     MESSAGEBOX                      11x
+  USER       @282   SELECTPALETTE                   11x
+  KERNEL     @60    FINDRESOURCE                    10x
+  KERNEL     @84    _LLSEEK                         10x
+  GDI        @80    GETDEVICECAPS                    9x
+  USER       @68    RELEASEDC                        9x
+  GDI        @1     SETBKCOLOR                       8x
+  GDI        @9     SETTEXTCOLOR                     8x
+  GDI        @27    RECTANGLE                        8x
+  KERNEL     @81    _LCLOSE                          8x
+  GDI        @61    CREATEPEN                        7x
+  GDI        @68    DELETEDC                         6x
+  KERNEL     @63    FREERESOURCE                     6x
+  KERNEL     @82    _LREAD                           6x
+  USER       @66    GETDC                            6x
+  USER       @77    OFFSETRECT                       6x
+  USER       @85    DRAWTEXT                         6x
+  USER       @91    GETDLGITEM                       6x
+  WIN87EM    @1     __FPMATH                         6x
+  GDI        @36    POLYGON                          5x
+  KERNEL     @129   WRITEPRIVATEPROFILESTRING        5x
+  KERNEL     @349   _HREAD                           5x
+  SOSLIB03   @60    SOSDIGISTOPALLSAMPLES            5x
+  USER       @33    GETCLIENTRECT                    5x
+  USER       @42    SHOWWINDOW                       5x
+  GDI        @35    STRETCHBLT                       4x
+  GDI        @360   CREATEPALETTE                    4x
+  GDI        @441   GETDIBITS                        4x
+  KERNEL     @20    GLOBALSIZE                       4x
+  KERNEL     @85    _LOPEN                           4x
+  TOOLHELP   @80    TIMERCOUNT                       4x
+  USER       @62    SETSCROLLPOS                     4x
+  USER       @83    FRAMERECT                        4x
+  USER       @283   REALIZEPALETTE                   4x
+  GDI        @82    GETOBJECT                        3x
+  GDI        @375   GETSYSTEMPALETTEENTRIES          3x
+  KERNEL     @3     GETVERSION                       3x
+  KERNEL     @16    GLOBALREALLOC                    3x
+  KERNEL     @61    LOADRESOURCE                     3x
+  KERNEL     @62    LOCKRESOURCE                     3x
+  KERNEL     @65    SIZEOFRESOURCE                   3x
+  KERNEL     @86    _LWRITE                          3x
+  KERNEL     @127   GETPRIVATEPROFILEINT             3x
+  KERNEL     @128   GETPRIVATEPROFILESTRING          3x
+  USER       @32    GETWINDOWRECT                    3x
+  USER       @53    DESTROYWINDOW                    3x
+  USER       @56    MOVEWINDOW                       3x
+  USER       @69    SETCURSOR                        3x
+  USER       @88    ENDDIALOG                        3x
+  USER       @94    SETDLGITEMINT                    3x
+  USER       @104   MESSAGEBEEP                      3x
+  USER       @109   PEEKMESSAGE                      3x
+  USER       @113   TRANSLATEMESSAGE                 3x
+  USER       @114   DISPATCHMESSAGE                  3x
+  GDI        @2     SETBKMODE                        2x
+  GDI        @29    PATBLT                           2x
+  GDI        @52    CREATECOMPATIBLEDC               2x
+  GDI        @443   SETDIBITSTODEVICE                2x
+  GDI        @480   SETVIEWPORTORGEX                 2x
+  KERNEL     @74    OPENFILE                         2x
+  MMSYSTEM   @2     SNDPLAYSOUND                     2x
+  SOSLIB03   @6     SOSTIMERINITSYSTEM               2x
+  SOSLIB03   @7     SOSTIMERUNINITSYSTEM             2x
+  SOSLIB03   @41    SOSDIGIDETECTUNINIT              2x
+  SOSLIB03   @45    SOSDIGISETACTIVEWINDOW           2x
+  SOSLIB03   @55    SOSDIGISTREAMADDBUFFER           2x
+  SOSLIB03   @62    SOSMIDIDETECTUNINIT              2x
+  SOSLIB03   @67    SOSMIDISETINSDATA                2x
+  USER       @6     POSTQUITMESSAGE                  2x
+  USER       @12    KILLTIMER                        2x
+  USER       @19    RELEASECAPTURE                   2x
+  USER       @28    CLIENTTOSCREEN                   2x
+  USER       @37    SETWINDOWTEXT                    2x
+  USER       @87    DIALOGBOX                        2x
+  USER       @92    SETDLGITEMTEXT                   2x
+  USER       @93    GETDLGITEMTEXT                   2x
+  USER       @95    GETDLGITEMINT                    2x
+  USER       @130   SETCLASSWORD                     2x
+  USER       @173   LOADCURSOR                       2x
+  USER       @176   LOADSTRING                       2x
+  USER       @286   GETDESKTOPWINDOW                 2x
+  WING       @1001  WINGCREATEDC                     2x
+  GDI        @19    LINETO                           1x
+  GDI        @20    MOVETO                           1x
+  GDI        @24    ELLIPSE                          1x
+  GDI        @34    BITBLT                           1x
+  GDI        @51    CREATECOMPATIBLEBITMAP           1x
+  GDI        @57    CREATEFONTINDIRECT               1x
+  GDI        @91    GETTEXTEXTENT                    1x
+  GDI        @153   CREATEIC                         1x
+  GDI        @374   GETSYSTEMPALETTEUSE              1x
+  GDI        @439   STRETCHDIBITS                    1x
+  GDI        @442   CREATEDIBITMAP                   1x
+  KERNEL     @4     LOCALINIT                        1x
+  KERNEL     @36    GETCURRENTTASK                   1x
+  KERNEL     @48    GETMODULEUSAGE                   1x
+  KERNEL     @49    GETMODULEFILENAME                1x
+  KERNEL     @95    LOADLIBRARY                      1x
+  KERNEL     @96    FREELIBRARY                      1x
+  KERNEL     @115   OUTPUTDEBUGSTRING                1x
+  KERNEL     @132   GETWINFLAGS                      1x
+  MMSYSTEM   @604   TIMEGETDEVCAPS                   1x
+  MMSYSTEM   @607   TIMEGETTIME                      1x
+  SOSLIB03   @2     SOSDIGIUNINITSYSTEM              1x
+  SOSLIB03   @3     SOSDIGIINITDRIVER                1x
+  SOSLIB03   @4     SOSDIGIUNINITDRIVER              1x
+  SOSLIB03   @14    SOSDIGIUSERSERVICE               1x
+  SOSLIB03   @18    SOSDIGISTARTSAMPLE               1x
+  SOSLIB03   @21    SOSDIGISAMPLESPLAYING            1x
+  SOSLIB03   @37    SOSDIGISAMPLEDONE                1x
+  SOSLIB03   @40    SOSDIGIDETECTINIT                1x
+  SOSLIB03   @42    SOSDIGIDETECTFINDFIRST           1x
+  SOSLIB03   @44    SOSDIGIINITSYSTEM                1x
+  SOSLIB03   @46    SOSGETERRORSTRING                1x
+  SOSLIB03   @47    SOSDIGIRELEASEDRIVER             1x
+  SOSLIB03   @48    SOSDIGIACQUIREDRIVER             1x
+  SOSLIB03   @51    SOSDIGISTREAMACQUIRE             1x
+  SOSLIB03   @52    SOSDIGISTREAMRELEASE             1x
+  SOSLIB03   @53    SOSDIGISTREAMPREPAREBUFFER       1x
+  SOSLIB03   @54    SOSDIGISTREAMUNPREPAREBUFFER     1x
+  SOSLIB03   @56    SOSDIGISTREAMSTART               1x
+  SOSLIB03   @57    SOSDIGISTREAMSTOP                1x
+  SOSLIB03   @61    SOSMIDIDETECTINIT                1x
+  SOSLIB03   @63    SOSMIDIDETECTFINDFIRST           1x
+  SOSLIB03   @64    SOSMIDIDETECTFINDNEXT            1x
+  SOSLIB03   @85    SOSMIDIINITDRIVER                1x
+  SOSLIB03   @86    SOSMIDIUNINITDRIVER              1x
+  SOSLIB03   @87    SOSMIDIRESETDRIVER               1x
+  SOSLIB03   @88    SOSMIDISTOPALLSONGS              1x
+  SOSLIB03   @90    SOSMIDISETACTIVEWINDOW           1x
+  SOSLIB03   @96    SOSMIDIINITSYSTEM                1x
+  SOSLIB03   @97    SOSMIDIUNINITSYSTEM              1x
+  TOOLHELP   @54    GLOBALENTRYHANDLE                1x
+  USER       @10    SETTIMER                         1x
+  USER       @16    CLIPCURSOR                       1x
+  USER       @23    GETFOCUS                         1x
+  USER       @54    ENUMWINDOWS                      1x
+  USER       @64    SETSCROLLRANGE                   1x
+  USER       @70    SETCURSORPOS                     1x
+  USER       @89    CREATEDIALOG                     1x
+  USER       @111   SENDMESSAGE                      1x
+  USER       @135   GETWINDOWLONG                    1x
+  USER       @136   SETWINDOWLONG                    1x
+  USER       @225   ENUMTASKWINDOWS                  1x
+  USER       @241   CREATEDIALOGPARAM                1x
+  USER       @290   REDRAWWINDOW                     1x
+  WING       @1002  WINGRECOMMENDDIBFORMAT           1x
+  WING       @1003  WINGCREATEBITMAP                 1x
+  WING       @1009  WINGSTRETCHBLT                   1x
+
+--- Summary ---
+  unique imports: 162   unresolved: 0
+
+--- Per-segment module usage ---
+  Seg   1 (26381B): KERNEL(30), WIN87EM(6), USER(2)
+  Seg   2 (18234B): USER(8)
+  Seg   3 (20433B): USER(1)
+  Seg   4 (15345B): USER(5)
+  Seg   6 (15187B): USER(9), GDI(1)
+  Seg   7 (10105B): USER(2)
+  Seg   8 (16886B): GDI(1)
+  Seg   9 (12863B): USER(5)
+  Seg  10 ( 3496B): USER(15)
+  Seg  11 (34149B): GDI(3)
+  Seg  12 ( 5766B): USER(13)
+  Seg  20 ( 9644B): KERNEL(3)
+  Seg  23 (22713B): USER(8)
+  Seg  29 ( 7180B): USER(1)
+  Seg  31 ( 6383B): USER(27), KERNEL(1)
+  Seg  32 (22622B): USER(2), GDI(2)
+  Seg  34 (16624B): USER(14), KERNEL(1)
+  Seg  35 ( 6758B): KERNEL(4)
+  Seg  37 ( 4082B): KERNEL(63), USER(19), GDI(16)
+  Seg  40 (27735B): KERNEL(104), TOOLHELP(4)
+  Seg  41 ( 8293B): USER(1)
+  Seg  42 ( 7566B): SOSLIB03(39), KERNEL(38), USER(4)
+  Seg  43 ( 6829B): SOSLIB03(9), USER(9), MMSYSTEM(2)
+  Seg  44 (51224B): GDI(204), KERNEL(174), USER(31), WING(5)
+  Seg  45 ( 7020B): KERNEL(36), USER(3), MMSYSTEM(2), TOOLHELP(1)
+  Seg  46 ( 3001B): USER(7)
+  Seg  47 (31972B): KERNEL(11)
+  Seg  48 ( 7555B): USER(14), GDI(8), KERNEL(3)
