@@ -47,11 +47,24 @@ CPU *g_cpu = NULL;
 void dump_fn_ring(int n)
 {
     if (n <= 0 || n > (int)CATZ_FN_RING_SIZE) n = (int)CATZ_FN_RING_SIZE;
-    fprintf(stderr, "--- last %d functions entered (oldest first) ---\n", n);
-    for (int i = n; i > 0; i--) {
-        unsigned idx = (g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1);
-        const char *name = g_fn_ring[idx];
-        if (name) fprintf(stderr, "  %s\n", name);
+    /* Histogram: tally occurrences of each distinct name pointer across the full
+     * ring (same lifted fn => same literal pointer). The most frequent names are
+     * the spin loop. */
+    const char *names[256]; int counts[256]; int nd = 0;
+    for (unsigned i = 0; i < CATZ_FN_RING_SIZE; i++) {
+        const char *nm = g_fn_ring[i];
+        if (!nm) continue;
+        int j = 0; for (; j < nd; j++) if (names[j] == nm) break;
+        if (j == nd && nd < 256) { names[nd] = nm; counts[nd] = 0; nd++; }
+        if (j < 256) counts[j]++;
+    }
+    fprintf(stderr, "--- ring histogram (top spin functions) ---\n");
+    for (int top = 0; top < 15; top++) {
+        int best = -1;
+        for (int j = 0; j < nd; j++) if (counts[j] >= 0 && (best < 0 || counts[j] > counts[best])) best = j;
+        if (best < 0 || counts[best] <= 0) break;
+        fprintf(stderr, "  %5d  %s\n", counts[best], names[best]);
+        counts[best] = -1;
     }
     fprintf(stderr, "--- end (total calls=%u) ---\n", g_fn_ring_pos);
 }
