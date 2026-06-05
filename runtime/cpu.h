@@ -21,11 +21,21 @@
 #include <math.h>
 #include "mem_layout.h"
 
-/* ── Function-entry trace (opt-in: compile with -DCATZ_TRACE_FN) ── */
+/* ── Function-entry trace ──
+ * Always-on lightweight ring buffer of the last function names entered, so a
+ * shim (e.g. the OOM MessageBox) can dump the recent call history to reveal
+ * which lifted functions form a loop / hit an error path. One pointer store per
+ * call. Opt into stderr-per-call with -DCATZ_TRACE_FN. */
+#define CATZ_FN_RING_BITS 12
+#define CATZ_FN_RING_SIZE (1u << CATZ_FN_RING_BITS)
+extern const char *g_fn_ring[CATZ_FN_RING_SIZE];
+extern unsigned g_fn_ring_pos;
+void dump_fn_ring(int n);
 #ifdef CATZ_TRACE_FN
-#define TRACE_FN(n) fprintf(stderr, "FN %s\n", (n))
+#define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); \
+    fprintf(stderr, "FN %s\n", (n)); } while (0)
 #else
-#define TRACE_FN(n) ((void)0)
+#define TRACE_FN(n) (g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n))
 #endif
 
 /* ── Flag bits ─────────────────────────────────────────────── */

@@ -22,6 +22,22 @@
 #define CATZ_IMAGE_PATH "build_data/mem_image.bin"
 #endif
 
+/* Function-entry ring buffer (declared in cpu.h, filled by TRACE_FN). */
+const char *g_fn_ring[CATZ_FN_RING_SIZE];
+unsigned g_fn_ring_pos = 0;
+
+void dump_fn_ring(int n)
+{
+    if (n <= 0 || n > (int)CATZ_FN_RING_SIZE) n = (int)CATZ_FN_RING_SIZE;
+    fprintf(stderr, "--- last %d functions entered (oldest first) ---\n", n);
+    for (int i = n; i > 0; i--) {
+        unsigned idx = (g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1);
+        const char *name = g_fn_ring[idx];
+        if (name) fprintf(stderr, "  %s\n", name);
+    }
+    fprintf(stderr, "--- end (total calls=%u) ---\n", g_fn_ring_pos);
+}
+
 static int load_image(CPU *cpu, const char *path)
 {
     FILE *f = fopen(path, "rb");

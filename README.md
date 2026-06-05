@@ -75,24 +75,29 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status: 386 Decode Complete; Blocked On Borland Far-Heap Model
+## Status: DLL Initialization Runs End-To-End ✅
 
-The full lifted engine **compiles (0 errors, 0 warnings), links with zero
-undefined symbols, and executes** the NE entry (`seg001_0000`) through the
-init-path Win16 shims into the **Borland C++ RTL far-heap initialization**.
+The recompiled `CATZDLL.DLL` **compiles (0 errors/0 warnings), links zero-
+undefined, and runs its entire Borland C++ RTL startup + far-heap init to
+completion**, returning success from the NE entry (`entry returned ax=0001`).
+Initialization now allocates a single 4 KB heap arena and carves real
+sub-allocations (180/24/296 B) from it — correct Borland far-heap behavior.
 
-The **`0x66` 32-bit operand-size prefix and `0x0F` two-byte opcodes are now
-fully implemented** in the shared decoder + lifter (10,210 `0x66` + 3,429 `0x0F`
-sites — **0 residual `db 0x66`**, 0 unhandled). The engine's pervasive 386
-codegen (push/pop/mov/add/sub/shift/imul/cdq/cwde on `eax`–`edi`, movsx/movzx,
-setcc, jcc-near) lifts to correct 32-bit C.
+Two correctness fixes got here:
 
-It now halts at `MessageBox("Out of memory in _setargv")` for a **different,
-deeper reason**: `_setargv`'s heap-init loop `GlobalAlloc`s 4 KB moveable blocks
-until failure, but the Borland far-heap manager does not recognize the blocks as
-usable (even 6145 blocks = 24 MB reads as "not enough"). The arena linkage
-relies on **huge-pointer (`__AHINCR`/`__AHSHIFT`) selector arithmetic** — the
-next bring-up blocker (a memory-model problem, not a decode gap).
+1. **386 instruction support** — `0x66` operand-size + `0x0F` two-byte opcodes
+   in the shared decoder/lifter (10,210 + 3,429 sites, **0 residual `db 0x66`**).
+   The engine is pervasively 386-compiled (eax–edi, movsx/movzx, setcc, etc.).
+2. **`les`/`lds` far-pointer lifting bug** — when the destination register was
+   also part of the address (`les di,[di]`, the linked-list-walk idiom), the
+   lifter clobbered the register before reading the segment word, silently
+   breaking every far-pointer traversal. This caused the heap arena's free-list
+   to always read empty → infinite 4 KB arena allocation → `_setargv` OOM. Fixed
+   by reading both words into temps before writing. (The "huge-pointer model"
+   was a misdiagnosis.)
+
+Next: a host that calls the exported XApt entry points + a USER message loop +
+GDI/WinG rendering → first frame.
 
 ### Pipeline results
 
@@ -107,12 +112,11 @@ next bring-up blocker (a memory-model problem, not a decode gap).
 
 ### Remaining work (prioritized)
 
-1. **Borland far-heap / huge-pointer model** — **THE blocker.** Implement the
-   `__AHINCR`/`__AHSHIFT` huge-pointer model so consecutive selectors map to
-   consecutive 64 KB flat regions and the Borland far-heap arena links/walks
-   correctly; or RE the exact arena format the RTL expects. Unblocks `_setargv`.
-2. **USER message loop + GDI/WinG blit** → first rendered frame: GetDC/
-   BeginPaint, CreateDIBitmap/BitBlt/StretchDIBits, palette, WinG → SDL2/GDI32.
+1. **Drive the engine via its exports** — a CATZ.EXE-equivalent host that calls
+   the exported XApt entry points (1,263 exports) to create the playscene/pet,
+   plus a USER message loop + window-proc dispatch.
+2. **GDI/WinG render → first frame**: GetDC/BeginPaint, CreateDIBitmap/BitBlt/
+   StretchDIBits, palette, WinG fast blit → SDL2/GDI32.
 3. SOS audio + remaining Win16 shims as reached (purge bytes in `tools/win16.py`;
    stubs warn loudly on unknown purge).
 4. Minor lifter ops: `shld`/`shrd` (201, decoded but TODO), `rcl`/`rcr`, `sahf`.

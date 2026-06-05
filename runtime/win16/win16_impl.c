@@ -194,6 +194,8 @@ void USER_MESSAGEBOX(CPU *cpu) {
     read_asciiz(cpu, tseg, toff, text, sizeof(text));
     read_asciiz(cpu, cseg, coff, cap, sizeof(cap));
     fprintf(stderr, "[MessageBox] \"%s\" | \"%s\"\n", cap, text);
+    if (strstr(text, "memory") || strstr(text, "Memory"))
+        dump_fn_ring(120);                  /* reveal the call path into OOM */
     cpu->ax = 1;                            /* IDOK */
     ret(cpu, 12);
 }
