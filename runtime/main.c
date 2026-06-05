@@ -17,6 +17,20 @@
 #include "mem_layout.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <windows.h>
+
+/* Watchdog: if the engine hangs in lifted code, dump the recent call ring so we
+ * can see the spinning loop, then exit. Enable with -DCATZ_WATCHDOG. */
+static DWORD WINAPI watchdog_thread(LPVOID p) {
+    (void)p;
+    Sleep(5000);
+    fprintf(stderr, "\n[watchdog] 5s elapsed - recent call ring (hang loop?):\n");
+    dump_fn_ring(60);
+    fflush(stderr);
+    _exit(99);
+    return 0;
+}
 
 #ifndef CATZ_IMAGE_PATH
 #define CATZ_IMAGE_PATH "build_data/mem_image.bin"
@@ -106,6 +120,12 @@ int main(int argc, char *argv[])
     cpu.cs = CATZ_DLL_ENTRY_SEG;
     seg001_0000(&cpu);                      /* CATZDLL LibMain */
     printf("CATZDLL init returned (ax=%04X)\n", cpu.ax);
+
+#ifdef CATZ_WATCHDOG
+    CreateThread(NULL, 0, watchdog_thread, NULL, 0, NULL);
+#else
+    (void)watchdog_thread;
+#endif
 
     /* 2) Run the CATZ.WAD host startup (Borland C0 -> WinMain): window +
      *    message loop, driving CATZDLL via the cross-module calls already
