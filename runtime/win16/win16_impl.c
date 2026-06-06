@@ -213,8 +213,12 @@ void USER_MESSAGEBOX(CPU *cpu) {
     read_asciiz(cpu, tseg, toff, text, sizeof(text));
     read_asciiz(cpu, cseg, coff, cap, sizeof(cap));
     fprintf(stderr, "[MessageBox] \"%s\" | \"%s\"\n", cap, text);
-    if (strstr(text, "memory") || strstr(text, "Memory"))
-        dump_fn_ring(120);                  /* reveal the call path into OOM */
+    if (strstr(text, "memory") || strstr(text, "Memory") || strstr(text, "Abnormal") || strstr(text, "abnormal")) {
+        extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
+        fprintf(stderr, "[abort] recent 120 fns:");
+        for (int i = 120; i > 0; i--) { const char *r = g_fn_ring[(g_fn_ring_pos-(unsigned)i) & ((1u<<12)-1)]; if (r) fprintf(stderr, " %s", r+3); }
+        fprintf(stderr, "\n");
+    }
     cpu->ax = 1;                            /* IDOK */
     ret(cpu, 12);
 }
