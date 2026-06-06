@@ -13,6 +13,7 @@
  * GlobalReAlloc never has to move a block (a selector addresses <=64K anyway).
  */
 #include "runtime_api.h"
+#include "ne_resources.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,6 +140,87 @@ void KERNEL_GLOBALHANDLE(CPU *cpu) {        /* -> DX:AX = selector:handle (same)
     uint16_t sel = a16(cpu, 0);
     cpu->dx = sel; cpu->ax = sel;
     ret(cpu, 2);
+}
+
+/* ===== KERNEL/USER: modules, string table & resources =====
+ * Backed by the original NE binaries (ne_resources.c). The engine LoadLibrary's
+ * CATZREZX.DLL (a pure resource container) and reads its config-key names from
+ * CATZDLL's STRINGTABLE; without these it throws KatzError "CATZREZX.DLL did not
+ * load" at startup. */
+
+void KERNEL_LOADLIBRARY(CPU *cpu) {         /* LoadLibrary(lpLibFileName) */
+    char name[128]; read_asciiz(cpu, a16(cpu, 2), a16(cpu, 0), name, sizeof name);
+    uint16_t h = ne_loadlib(name);
+    if (!h) h = 0x0040;                     /* benign handle for DLLs w/o resources (WIN87EM) */
+    IMPL_LOG("[win16] LoadLibrary(%s) -> %04X\n", name, h);
+    cpu->ax = h;                            /* >32 == success */
+    ret(cpu, 4);
+}
+
+void KERNEL_FREELIBRARY(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
+void KERNEL_FREERESOURCE(CPU *cpu) { cpu->ax = 0; ret(cpu, 2); }  /* FALSE == still in use, ok */
+
+void USER_LOADSTRING(CPU *cpu) {           /* LoadString(hInst,uID,lpBuf,nMax) */
+    uint16_t hinst = a16(cpu, 8), id = a16(cpu, 6);
+    uint16_t boff = a16(cpu, 2), bseg = a16(cpu, 4);
+    int nmax = (int)a16(cpu, 0);
+    char s[256];
+    int n = ne_load_string(hinst, id, s, sizeof s);
+    int k = 0;
+    if (nmax > 0) {
+        for (; k < n && k < nmax - 1; k++) mem_write8(cpu, bseg, (uint16_t)(boff + k), (uint8_t)s[k]);
+        mem_write8(cpu, bseg, (uint16_t)(boff + k), 0);
+    }
+    IMPL_LOG("[win16] LoadString(%04X,%u) -> \"%s\" (%d)\n", hinst, id, n ? s : "", k);
+    cpu->ax = (uint16_t)k;
+    ret(cpu, 10);
+}
+
+/* Read a FindResource lpName/lpType arg: MAKEINTRESOURCE (seg==0) gives an int
+ * id in `off`, otherwise it's a far asciiz string. */
+static int res_arg(CPU *cpu, int off_idx, char *strbuf, int strmax) {
+    uint16_t off = a16(cpu, off_idx), seg = a16(cpu, off_idx + 2);
+    if (seg == 0) { strbuf[0] = 0; return (int)off; }   /* integer id */
+    read_asciiz(cpu, seg, off, strbuf, strmax);
+    return -1;                                          /* string in strbuf */
+}
+
+void KERNEL_FINDRESOURCE(CPU *cpu) {        /* FindResource(hInst,lpName,lpType) */
+    uint16_t hinst = a16(cpu, 8);
+    char tstr[64], nstr[64];
+    int tint = res_arg(cpu, 0, tstr, sizeof tstr);   /* lpType @0/2 */
+    int nint = res_arg(cpu, 4, nstr, sizeof nstr);   /* lpName @4/6 */
+    uint16_t hrsrc = ne_find_resource(hinst, tint, tstr, nint, nstr);
+    IMPL_LOG("[win16] FindResource(hInst=%04X type=%d/%s name=%d/%s) -> %04X\n",
+             hinst, tint, tstr, nint, nstr, hrsrc);
+    cpu->ax = hrsrc;
+    ret(cpu, 10);
+}
+
+void KERNEL_LOADRESOURCE(CPU *cpu) {        /* LoadResource(hInst,hResInfo) -> HGLOBAL */
+    uint16_t hrsrc = a16(cpu, 0);
+    uint32_t len = 0;
+    const uint8_t *bytes = ne_resource_bytes(hrsrc, &len);
+    if (!bytes) { cpu->ax = 0; ret(cpu, 4); return; }
+    uint16_t sel = galloc(cpu, len);
+    if (sel) for (uint32_t i = 0; i < len; i++) mem_write8(cpu, sel, (uint16_t)i, bytes[i]);
+    IMPL_LOG("[win16] LoadResource(hrsrc=%04X) -> sel=%04X (%u bytes)\n", hrsrc, sel, len);
+    cpu->ax = sel;
+    ret(cpu, 4);
+}
+
+void KERNEL_LOCKRESOURCE(CPU *cpu) {        /* LockResource(hResData) -> far ptr */
+    uint16_t sel = a16(cpu, 0);
+    cpu->dx = sel; cpu->ax = 0;             /* sel:0000 */
+    ret(cpu, 2);
+}
+
+void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
+    uint16_t hrsrc = a16(cpu, 0);
+    uint32_t len = 0;
+    ne_resource_bytes(hrsrc, &len);
+    cpu->ax = (uint16_t)len;
+    ret(cpu, 4);
 }
 
 /* ===== KERNEL: local heap =====

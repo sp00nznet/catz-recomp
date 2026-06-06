@@ -62,20 +62,13 @@ void GDI_STRETCHBLT(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHBLT"); cpu->ax = 0;
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
 
 /* ===== KERNEL ===== */
-void KERNEL_FINDRESOURCE(CPU *cpu) { (void)cpu; WIN16_LOG("FINDRESOURCE"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void KERNEL_FREELIBRARY(CPU *cpu) { (void)cpu; WIN16_LOG("FREELIBRARY"); cpu->ax = 0; cpu->sp += 4 + 2; }
-void KERNEL_FREERESOURCE(CPU *cpu) { (void)cpu; WIN16_LOG("FREERESOURCE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPRIVATEPROFILEINT"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("GETPRIVATEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4 + 22; }
 void KERNEL_GETPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPROFILEINT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETPROFILEINT"); }
 void KERNEL_GETSYSTEMDIRECTORY(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSTEMDIRECTORY"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETSYSTEMDIRECTORY"); }
 void KERNEL_GLOBALDOSALLOC(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSALLOC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GLOBALDOSALLOC"); }
 void KERNEL_GLOBALDOSFREE(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSFREE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GLOBALDOSFREE"); }
-void KERNEL_LOADLIBRARY(CPU *cpu) { (void)cpu; WIN16_LOG("LOADLIBRARY"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void KERNEL_LOADRESOURCE(CPU *cpu) { (void)cpu; WIN16_LOG("LOADRESOURCE"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void KERNEL_LOCKRESOURCE(CPU *cpu) { (void)cpu; WIN16_LOG("LOCKRESOURCE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void KERNEL_OPENFILE(CPU *cpu) { (void)cpu; WIN16_LOG("OPENFILE"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void KERNEL_SIZEOFRESOURCE(CPU *cpu) { (void)cpu; WIN16_LOG("SIZEOFRESOURCE"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void KERNEL_WINEXEC(CPU *cpu) { (void)cpu; WIN16_LOG("WINEXEC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINEXEC"); }
 void KERNEL_WRITEPRIVATEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("WRITEPRIVATEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4 + 16; }
 void KERNEL_WRITEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("WRITEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WRITEPROFILESTRING"); }
@@ -178,7 +171,6 @@ void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); c
 void USER_KILLTIMER(CPU *cpu) { (void)cpu; WIN16_LOG("KILLTIMER"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_LOADBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("LOADBITMAP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("LOADBITMAP"); }
 void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void USER_LOADSTRING(CPU *cpu) { (void)cpu; WIN16_LOG("LOADSTRING"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_OFFSETRECT(CPU *cpu) { (void)cpu; WIN16_LOG("OFFSETRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_POSTMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("POSTMESSAGE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("POSTMESSAGE"); }

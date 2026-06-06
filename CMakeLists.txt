@@ -25,6 +25,8 @@ file(GLOB RUNTIME_SOURCES CONFIGURE_DEPENDS runtime/win16/*.c)
 if(RUNTIME_SOURCES)
     add_library(catz_runtime STATIC ${RUNTIME_SOURCES})
     target_include_directories(catz_runtime PRIVATE runtime)
+    target_compile_definitions(catz_runtime PRIVATE
+        CATZ_GAME_DIR="${CMAKE_SOURCE_DIR}/game")
 endif()
 
 # Host: CATZ.EXE-equivalent window shell that loads the engine and drives it.
