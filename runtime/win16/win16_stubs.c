@@ -201,9 +201,3 @@ void USER__WSPRINTF(CPU *cpu) { (void)cpu; WIN16_LOG("_WSPRINTF"); cpu->ax = 0; 
 /* ===== WIN87EM ===== */
 void WIN87EM___FPMATH(CPU *cpu) { (void)cpu; WIN16_LOG("__FPMATH"); cpu->ax = 0; cpu->sp += 4 + 0; }
 
-/* ===== WING ===== */
-void WING_WINGCREATEBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("WINGCREATEBITMAP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINGCREATEBITMAP"); }
-void WING_WINGCREATEDC(CPU *cpu) { (void)cpu; WIN16_LOG("WINGCREATEDC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINGCREATEDC"); }
-void WING_WINGRECOMMENDDIBFORMAT(CPU *cpu) { (void)cpu; WIN16_LOG("WINGRECOMMENDDIBFORMAT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINGRECOMMENDDIBFORMAT"); }
-void WING_WINGSTRETCHBLT(CPU *cpu) { (void)cpu; WIN16_LOG("WINGSTRETCHBLT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINGSTRETCHBLT"); }
-

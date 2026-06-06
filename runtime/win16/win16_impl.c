@@ -223,6 +223,60 @@ void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
     ret(cpu, 4);
 }
 
+/* ===== WING: WinG offscreen DIB blitting (the engine's render surface) =====
+ * The engine WinGCreateDC()s a memory DC, WinGCreateBitmap()s an 8bpp DIB and
+ * draws the pet into its pixel buffer, then WinGStretchBlt()s it to the window.
+ * We give it a real guest-memory pixel buffer; presentation to the real window
+ * is a no-op for now (gets the engine into its render loop). */
+#define WING_DC_HANDLE 0x0DC0
+static struct { uint16_t hbm, sel; int w, h, bpp; } g_wing[8];
+static int g_nwing;
+
+void WING_WINGCREATEDC(CPU *cpu) {          /* WinGCreateDC(void) -> HDC */
+    cpu->ax = WING_DC_HANDLE;
+    IMPL_LOG("[win16] WinGCreateDC -> %04X\n", cpu->ax);
+    ret(cpu, 0);
+}
+
+void WING_WINGRECOMMENDDIBFORMAT(CPU *cpu) {/* WinGRecommendDIBFormat(BITMAPINFO*) */
+    uint16_t off = a16(cpu, 0), seg = a16(cpu, 2);
+    /* Fill a top-down 8bpp BI_RGB BITMAPINFOHEADER. biHeight=-1 signals top-down. */
+    mem_write32(cpu, seg, off + 0,  40);    /* biSize */
+    mem_write32(cpu, seg, off + 4,  1);     /* biWidth (probe) */
+    mem_write32(cpu, seg, off + 8,  (uint32_t)-1); /* biHeight = -1 -> top-down */
+    mem_write16(cpu, seg, off + 12, 1);     /* biPlanes */
+    mem_write16(cpu, seg, off + 14, 8);     /* biBitCount */
+    mem_write32(cpu, seg, off + 16, 0);     /* biCompression = BI_RGB */
+    cpu->ax = 1;
+    ret(cpu, 4);
+}
+
+void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,void**) */
+    uint16_t ppoff = a16(cpu, 0), ppseg = a16(cpu, 2);   /* ppBits (void FAR* FAR*) */
+    uint16_t hoff  = a16(cpu, 4), hseg  = a16(cpu, 6);   /* pHeader */
+    int w = (int)mem_read32(cpu, hseg, hoff + 4);
+    int h = (int)mem_read32(cpu, hseg, hoff + 8);
+    int bpp = mem_read16(cpu, hseg, hoff + 14); if (!bpp) bpp = 8;
+    if (h < 0) h = -h;
+    if (w <= 0) w = 1; if (h <= 0) h = 1;
+    uint32_t stride = (((uint32_t)w * bpp + 31) / 32) * 4;
+    uint32_t size = stride * (uint32_t)h;
+    uint16_t sel = galloc(cpu, size ? size : 1);
+    /* write the DIB pixel pointer (sel:0000) into *ppBits */
+    if (ppseg || ppoff) { mem_write16(cpu, ppseg, ppoff, 0); mem_write16(cpu, ppseg, (uint16_t)(ppoff + 2), sel); }
+    uint16_t hbm = (uint16_t)(0x0B00 + (++g_nwing));
+    if (g_nwing <= (int)(sizeof g_wing / sizeof g_wing[0]))
+        { g_wing[g_nwing-1].hbm = hbm; g_wing[g_nwing-1].sel = sel; g_wing[g_nwing-1].w = w; g_wing[g_nwing-1].h = h; g_wing[g_nwing-1].bpp = bpp; }
+    IMPL_LOG("[win16] WinGCreateBitmap %dx%dx%d -> hbm=%04X bits=%04X:0000 (%u B)\n", w, h, bpp, hbm, sel, size);
+    cpu->ax = hbm;
+    ret(cpu, 10);
+}
+
+void WING_WINGSTRETCHBLT(CPU *cpu) {        /* WinGStretchBlt(...) -> BOOL (present; no-op) */
+    cpu->ax = 1;
+    ret(cpu, 20);
+}
+
 /* ===== KERNEL: local heap =====
  * LocalInit(uSegment, uStart, uEnd) registers a segment's local heap with the
  * kernel and returns nonzero on success. Borland's RTL near-malloc (used by
@@ -427,9 +481,36 @@ void dos_int21(CPU *cpu) {
         exit(cpu->al);
     case 0x30:                              /* DOS version -> 5.00 */
         cpu->al = 5; cpu->ah = 0;
+        cpu->flags &= ~FLAG_CF;
+        break;
+    case 0x3D: {                           /* open file -> not found (no real FS) */
+        char fn[128]; read_asciiz(cpu, cpu->ds, cpu->dx, fn, sizeof fn);
+        IMPL_LOG("[INT21] open(\"%s\") -> not found\n", fn);
+        cpu->ax = 0x02;                    /* ENOENT */
+        cpu->flags |= FLAG_CF;             /* error */
+        break;
+    }
+    case 0x43: {                           /* get/set attributes (existence check) */
+        char fn[128]; read_asciiz(cpu, cpu->ds, cpu->dx, fn, sizeof fn);
+        IMPL_LOG("[INT21] getattr(\"%s\") -> not found\n", fn);
+        cpu->ax = 0x02; cpu->flags |= FLAG_CF;
+        break;
+    }
+    case 0x3C:                             /* create */
+    case 0x44:                             /* ioctl */
+    case 0x3F:                             /* read */
+    case 0x40:                             /* write */
+    case 0x42:                             /* lseek */
+        IMPL_LOG("[INT21] ah=%02X file-op -> error (no FS)\n", cpu->ah);
+        cpu->ax = 0x05;                    /* access denied */
+        cpu->flags |= FLAG_CF;             /* error: engine takes its not-found path */
+        break;
+    case 0x3E:                             /* close -> success */
+        cpu->flags &= ~FLAG_CF;
         break;
     default:
         IMPL_LOG("[INT21] ah=%02X (ignored)\n", cpu->ah);
+        cpu->flags &= ~FLAG_CF;
         break;
     }
     /* `int` is not a far call - no stack frame to clean. */
