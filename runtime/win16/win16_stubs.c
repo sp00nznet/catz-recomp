@@ -136,7 +136,7 @@ void TOOLHELP_GLOBALENTRYHANDLE(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALENTRYHAN
 void TOOLHELP_TIMERCOUNT(CPU *cpu) { (void)cpu; WIN16_LOG("TIMERCOUNT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 
 /* ===== USER ===== */
-void USER_BEGINPAINT(CPU *cpu) { (void)cpu; WIN16_LOG("BEGINPAINT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("BEGINPAINT"); }
+void USER_BEGINPAINT(CPU *cpu) { (void)cpu; WIN16_LOG("BEGINPAINT"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_BRINGWINDOWTOTOP(CPU *cpu) { (void)cpu; WIN16_LOG("BRINGWINDOWTOTOP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("BRINGWINDOWTOTOP"); }
 void USER_CHECKDLGBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKDLGBUTTON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("CHECKDLGBUTTON"); }
 void USER_CHECKMENUITEM(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKMENUITEM"); cpu->ax = 0; cpu->sp += 4 + 6; }
@@ -144,7 +144,7 @@ void USER_CLIENTTOSCREEN(CPU *cpu) { (void)cpu; WIN16_LOG("CLIENTTOSCREEN"); cpu
 void USER_CLIPCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("CLIPCURSOR"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_CREATEDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOG"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_CREATEDIALOGPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOGPARAM"); cpu->ax = 0; cpu->sp += 4 + 16; }
-void USER_DEFWINDOWPROC(CPU *cpu) { (void)cpu; WIN16_LOG("DEFWINDOWPROC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("DEFWINDOWPROC"); }
+void USER_DEFWINDOWPROC(CPU *cpu) { (void)cpu; WIN16_LOG("DEFWINDOWPROC"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("DESTROYICON"); }
 void USER_DESTROYWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYWINDOW"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; cpu->sp += 4 + 12; }
@@ -152,9 +152,9 @@ void USER_DIALOGBOXPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOXPARAM"); cpu
 void USER_DRAWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("DRAWTEXT"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ENABLEWINDOW"); }
 void USER_ENDDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("ENDDIALOG"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_ENDPAINT(CPU *cpu) { (void)cpu; WIN16_LOG("ENDPAINT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ENDPAINT"); }
+void USER_ENDPAINT(CPU *cpu) { (void)cpu; WIN16_LOG("ENDPAINT"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_ENUMWINDOWS(CPU *cpu) { (void)cpu; WIN16_LOG("ENUMWINDOWS"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_FILLRECT(CPU *cpu) { (void)cpu; WIN16_LOG("FILLRECT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("FILLRECT"); }
+void USER_FILLRECT(CPU *cpu) { (void)cpu; WIN16_LOG("FILLRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_FRAMERECT(CPU *cpu) { (void)cpu; WIN16_LOG("FRAMERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETACTIVEWINDOW"); }
 void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE"); cpu->ax = 0; cpu->sp += 4 + 2; }
@@ -170,7 +170,7 @@ void USER_GETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWLONG"); cpu->
 void USER_GETWINDOWPLACEMENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWPLACEMENT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETWINDOWPLACEMENT"); }
 void USER_GETWINDOWWORD(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWWORD"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETWINDOWWORD"); }
 void USER_INFLATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INFLATERECT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("INFLATERECT"); }
-void USER_INVALIDATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INVALIDATERECT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("INVALIDATERECT"); }
+void USER_INVALIDATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INVALIDATERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_ISDIALOGMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("ISDIALOGMESSAGE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISDIALOGMESSAGE"); }
 void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKED"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISDLGBUTTONCHECKED"); }
 void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISICONIC"); }

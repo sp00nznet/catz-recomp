@@ -78,7 +78,7 @@
 #define SEG_65 ((uint16_t)65)
 #define SEG_66 ((uint16_t)66)
 
-/* seg1 (1502 functions) */
+/* seg1 (1512 functions) */
 void seg001_0000(CPU *cpu);
 void seg001_0010(CPU *cpu);
 void seg001_0016(CPU *cpu);
@@ -1371,8 +1371,18 @@ void seg001_5674(CPU *cpu);
 void seg001_5683(CPU *cpu);
 void seg001_568F(CPU *cpu);
 void seg001_569E(CPU *cpu);
+void seg001_56A2(CPU *cpu);
+void seg001_56AD(CPU *cpu);
 void seg001_56B6(CPU *cpu);
+void seg001_56BB(CPU *cpu);
+void seg001_56C6(CPU *cpu);
 void seg001_56CF(CPU *cpu);
+void seg001_56D1(CPU *cpu);
+void seg001_56DD(CPU *cpu);
+void seg001_56E9(CPU *cpu);
+void seg001_56F5(CPU *cpu);
+void seg001_5701(CPU *cpu);
+void seg001_570D(CPU *cpu);
 void seg001_571B(CPU *cpu);
 void seg001_5720(CPU *cpu);
 void seg001_5733(CPU *cpu);
