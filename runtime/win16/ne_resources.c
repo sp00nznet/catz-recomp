@@ -38,6 +38,13 @@ static int g_nmods;
 static struct { Mod *m; Res *r; } g_found[512];
 static int g_nfound;
 
+/* Petz tag table: maps a 4-char resource tag + id to the real NE integer type.
+ * CATZDLL embeds records [tag(4)][00 00][0C 00][type 0xFF0x][id]; the engine asks
+ * FindResource by (tag string, id) but resources are stored under the int type. */
+typedef struct { char tag[5]; uint16_t id; uint16_t type; } TagMap;
+static TagMap g_tagmap[8192];
+static int g_ntag;
+
 static int g_inited;
 
 static int ieq(const char *a, const char *b);   /* case-insensitive equal */
@@ -126,11 +133,41 @@ static Mod *register_mod(const char *base, uint16_t hinst) {
     return m;
 }
 
+/* Scan a module's raw image for Petz tag records and build the tag+id->type map. */
+static void scan_tagmap(Mod *m) {
+    const uint8_t *d = m->data;
+    long n = m->size;
+    for (long i = 0; i + 12 <= n; i++) {
+        int ok = 1;
+        for (int k = 0; k < 4; k++) { uint8_t c = d[i + k]; if (c < 0x20 || c > 0x7E) { ok = 0; break; } }
+        if (!ok) continue;
+        if (d[i + 4] || d[i + 5]) continue;
+        if (d[i + 6] != 0x0C || d[i + 7] != 0x00) continue;
+        uint16_t type = (uint16_t)(d[i + 8] | (d[i + 9] << 8));
+        if (type < 0xFF00 || type > 0xFF20) continue;      /* Petz custom types */
+        if (g_ntag >= (int)(sizeof g_tagmap / sizeof g_tagmap[0])) break;
+        memcpy(g_tagmap[g_ntag].tag, d + i, 4); g_tagmap[g_ntag].tag[4] = 0;
+        g_tagmap[g_ntag].id   = (uint16_t)(d[i + 10] | (d[i + 11] << 8));
+        g_tagmap[g_ntag].type = (uint16_t)(type & 0x7FFF);
+        g_ntag++;
+    }
+}
+
+static int tag_to_type(const char *tag, int id) {
+    if (id < 0 || !tag) return -1;
+    for (int i = 0; i < g_ntag; i++)
+        if (g_tagmap[i].id == (uint16_t)id && ieq(g_tagmap[i].tag, tag))
+            return g_tagmap[i].type;
+    return -1;
+}
+
 void ne_init(void) {
     if (g_inited) return;
     g_inited = 1;
-    register_mod("CATZDLL", 59);   /* hinst == CATZDLL DGROUP selector */
-    register_mod("CATZ", 66);      /* CATZ.WAD; hinst == WAD DGROUP selector */
+    Mod *dll = register_mod("CATZDLL", 59);   /* hinst == CATZDLL DGROUP selector */
+    register_mod("CATZ", 66);                 /* CATZ.WAD; hinst == WAD DGROUP selector */
+    if (dll) scan_tagmap(dll);
+    fprintf(stderr, "[ne] tag map: %d (tag,id)->type records\n", g_ntag);
 }
 
 static Mod *mod_by_hinst(uint16_t hinst) {
@@ -206,22 +243,45 @@ int ne_load_string(uint16_t hinst, uint16_t id, char *out, int max) {
     return 0;
 }
 
+static int res_matches(Res *r, int type_int, const char *type_str,
+                       int name_int, const char *name_str) {
+    int tmatch = (type_int >= 0)
+        ? (r->type_int == type_int)
+        : (r->type_int < 0 && type_str && ieq(r->type_name, type_str));
+    if (!tmatch) return 0;
+    return (name_int >= 0) ? (r->name_int == name_int)
+                           : (r->name_int < 0 && name_str && ieq(r->name_str, name_str));
+}
+
+static uint16_t register_found(Mod *m, Res *r) {
+    if (g_nfound >= (int)(sizeof g_found / sizeof g_found[0])) return 0;
+    g_found[g_nfound].m = m; g_found[g_nfound].r = r;
+    return (uint16_t)(++g_nfound);                /* HRSRC = index+1 */
+}
+
 uint16_t ne_find_resource(uint16_t hinst, int type_int, const char *type_str,
                           int name_int, const char *name_str) {
     ne_init();
+    /* Resolve a Petz 4-char tag ("APTF","PALT",...) to its real NE int type via
+     * the (tag,id) table, since resources are stored under int types not the tag. */
+    if (type_int < 0 && type_str && name_int >= 0) {
+        int t = tag_to_type(type_str, name_int);
+        if (t >= 0) { type_int = t; type_str = NULL; }
+    }
     Mod *m = mod_by_hinst(hinst);
-    if (!m) return 0;
-    for (int i = 0; i < m->nres; i++) {
-        Res *r = &m->res[i];
-        int tmatch = (type_int >= 0) ? (r->type_int == type_int)
-                                     : (r->type_int < 0 && type_str && ieq(r->type_name, type_str));
-        if (!tmatch) continue;
-        int nmatch = (name_int >= 0) ? (r->name_int == name_int)
-                                     : (r->name_int < 0 && name_str && ieq(r->name_str, name_str));
-        if (!nmatch) continue;
-        if (g_nfound >= (int)(sizeof g_found / sizeof g_found[0])) return 0;
-        g_found[g_nfound].m = m; g_found[g_nfound].r = r;
-        return (uint16_t)(++g_nfound);            /* HRSRC = index+1 */
+    if (m) {
+        for (int i = 0; i < m->nres; i++)
+            if (res_matches(&m->res[i], type_int, type_str, name_int, name_str))
+                return register_found(m, &m->res[i]);
+    }
+    /* The engine sometimes passes hInst=0 / the wrong module's handle (the real
+     * resource handle does not always propagate cross-module yet). Fall back to
+     * searching every loaded module. */
+    for (int j = 0; j < g_nmods; j++) {
+        if (&g_mods[j] == m) continue;
+        for (int i = 0; i < g_mods[j].nres; i++)
+            if (res_matches(&g_mods[j].res[i], type_int, type_str, name_int, name_str))
+                return register_found(&g_mods[j], &g_mods[j].res[i]);
     }
     return 0;
 }
