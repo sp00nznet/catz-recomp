@@ -473,6 +473,28 @@ void CTL3DV2_CTL3DAUTOSUBCLASS(CPU *cpu)   { cpu->ax = 1; ret(cpu, 2); }
 
 /* ===== INT 21h (DOS services occasionally used by the Borland startup) ===== */
 
+/* ===== read-only DOS file I/O backed by the extracted game data tree =====
+ * The engine opens data files by absolute guest path (e.g.
+ * "C:\CATZ\ptzfiles\cat\resource\catsnd.txt"). We anchor on the "ptzfiles"
+ * component and remap it under CATZ_DATA_DIR on the host. */
+#ifndef CATZ_DATA_DIR
+#define CATZ_DATA_DIR "game"
+#endif
+static FILE *g_dosfiles[64];          /* DOS handle h (>=5) -> host FILE* (slot h-5) */
+
+static int dos_map_path(CPU *cpu, char *host, int hostsz) {
+    char g[192]; read_asciiz(cpu, cpu->ds, cpu->dx, g, sizeof g);
+    if (!g[0]) return 0;
+    char low[192]; int i = 0;
+    for (; g[i]; i++) low[i] = (g[i] >= 'A' && g[i] <= 'Z') ? (char)(g[i] + 32) : g[i];
+    low[i] = 0;
+    char *p = strstr(low, "ptzfiles");
+    if (!p) return 0;                  /* only the game data tree is served */
+    snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, g + (p - low));
+    for (char *q = host; *q; q++) if (*q == '\\') *q = '/';
+    return 1;
+}
+
 void dos_int21(CPU *cpu) {
     switch (cpu->ah) {
     case 0x4C:                              /* terminate process */
@@ -483,30 +505,70 @@ void dos_int21(CPU *cpu) {
         cpu->al = 5; cpu->ah = 0;
         cpu->flags &= ~FLAG_CF;
         break;
-    case 0x3D: {                           /* open file -> not found (no real FS) */
-        char fn[128]; read_asciiz(cpu, cpu->ds, cpu->dx, fn, sizeof fn);
-        IMPL_LOG("[INT21] open(\"%s\") -> not found\n", fn);
-        cpu->ax = 0x02;                    /* ENOENT */
-        cpu->flags |= FLAG_CF;             /* error */
+    case 0x3D: {                           /* open existing file */
+        char host[256];
+        FILE *f = dos_map_path(cpu, host, sizeof host) ? fopen(host, "rb") : NULL;
+        int slot = -1;
+        if (f) for (int i = 0; i < (int)(sizeof g_dosfiles / sizeof g_dosfiles[0]); i++)
+            if (!g_dosfiles[i]) { slot = i; break; }
+        if (f && slot >= 0) {
+            g_dosfiles[slot] = f;
+            cpu->ax = (uint16_t)(slot + 5);    /* handle (0-4 reserved) */
+            cpu->flags &= ~FLAG_CF;
+            IMPL_LOG("[INT21] open -> handle %u (%s)\n", cpu->ax, host);
+        } else {
+            if (f) fclose(f);
+            cpu->ax = 0x02; cpu->flags |= FLAG_CF;
+            IMPL_LOG("[INT21] open -> not found\n");
+        }
         break;
     }
-    case 0x43: {                           /* get/set attributes (existence check) */
-        char fn[128]; read_asciiz(cpu, cpu->ds, cpu->dx, fn, sizeof fn);
-        IMPL_LOG("[INT21] getattr(\"%s\") -> not found\n", fn);
-        cpu->ax = 0x02; cpu->flags |= FLAG_CF;
+    case 0x3F: {                           /* read: bx=handle cx=count buf=ds:dx */
+        int slot = (int)cpu->bx - 5;
+        uint16_t cnt = cpu->cx, got = 0;
+        if (slot >= 0 && slot < (int)(sizeof g_dosfiles/sizeof g_dosfiles[0]) && g_dosfiles[slot]) {
+            for (; got < cnt; got++) {
+                int c = fgetc(g_dosfiles[slot]);
+                if (c < 0) break;
+                mem_write8(cpu, cpu->ds, (uint16_t)(cpu->dx + got), (uint8_t)c);
+            }
+            cpu->ax = got; cpu->flags &= ~FLAG_CF;
+        } else { cpu->ax = 0; cpu->flags |= FLAG_CF; }
         break;
     }
-    case 0x3C:                             /* create */
-    case 0x44:                             /* ioctl */
-    case 0x3F:                             /* read */
-    case 0x40:                             /* write */
-    case 0x42:                             /* lseek */
-        IMPL_LOG("[INT21] ah=%02X file-op -> error (no FS)\n", cpu->ah);
-        cpu->ax = 0x05;                    /* access denied */
-        cpu->flags |= FLAG_CF;             /* error: engine takes its not-found path */
+    case 0x42: {                           /* lseek: bx=handle al=whence cx:dx=off -> dx:ax pos */
+        int slot = (int)cpu->bx - 5;
+        if (slot >= 0 && slot < (int)(sizeof g_dosfiles/sizeof g_dosfiles[0]) && g_dosfiles[slot]) {
+            long off = (long)(((uint32_t)cpu->cx << 16) | cpu->dx);
+            int whence = (cpu->al == 1) ? SEEK_CUR : (cpu->al == 2) ? SEEK_END : SEEK_SET;
+            fseek(g_dosfiles[slot], off, whence);
+            long pos = ftell(g_dosfiles[slot]);
+            cpu->ax = (uint16_t)pos; cpu->dx = (uint16_t)(pos >> 16);
+            cpu->flags &= ~FLAG_CF;
+        } else { cpu->flags |= FLAG_CF; }
         break;
-    case 0x3E:                             /* close -> success */
+    }
+    case 0x3E: {                           /* close: bx=handle */
+        int slot = (int)cpu->bx - 5;
+        if (slot >= 0 && slot < (int)(sizeof g_dosfiles/sizeof g_dosfiles[0]) && g_dosfiles[slot]) {
+            fclose(g_dosfiles[slot]); g_dosfiles[slot] = NULL;
+        }
         cpu->flags &= ~FLAG_CF;
+        break;
+    }
+    case 0x43: {                           /* get attributes = existence check */
+        char host[256];
+        FILE *f = dos_map_path(cpu, host, sizeof host) ? fopen(host, "rb") : NULL;
+        if (f) { fclose(f); cpu->cx = 0; cpu->flags &= ~FLAG_CF; }
+        else   { cpu->ax = 0x02; cpu->flags |= FLAG_CF; }
+        break;
+    }
+    case 0x44:                             /* ioctl get-device-info -> regular disk file */
+        cpu->dx = 0; cpu->ax = 0; cpu->flags &= ~FLAG_CF;
+        break;
+    case 0x3C:                             /* create (read-only env) */
+    case 0x40:                             /* write (read-only env) */
+        cpu->ax = 0x05; cpu->flags |= FLAG_CF;
         break;
     default:
         IMPL_LOG("[INT21] ah=%02X (ignored)\n", cpu->ah);
