@@ -58,13 +58,19 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
      * synchronously while the guest is mid-call), so snapshot the FULL guest
      * register state and restore it afterwards. */
     CPU save = *cpu;
-    /* The Borland C0 exception/cleanup chain head lives at ss:[0x14] in the
-     * task's stack segment. The WNDPROC runs re-entrantly on the SAME stack and
-     * registers its own cleanup frames (updating ss:[0x14]); those frames are
-     * gone once we restore the interrupted guest's SP, so the head must be put
-     * back too -- otherwise it points at a stale frame and the interrupted
-     * guest's later chain walk loops forever. Snapshot it alongside the CPU. */
-    uint16_t saved_exc_head = mem_read16(cpu, cpu->ss, 0x14);
+    /* The Borland C0 exception/cleanup machinery keeps THREE chain heads in the
+     * task's stack segment: ss:[0x10] (CATZDLL cleanup chain), ss:[0x14] (WAD
+     * cleanup chain) and ss:[0x16] (the C++ catch/setjmp chain). The WNDPROC runs
+     * re-entrantly on the SAME stack and pushes its own frames onto these chains;
+     * once we restore the interrupted guest's SP those frames no longer exist, so
+     * every head must be put back -- otherwise a head points at a discarded frame
+     * (or a foreign module's setjmp buffer) and the interrupted guest's later
+     * chain walk derails into a runaway loop. Snapshot all three alongside the
+     * CPU. (Restoring only ss:[0x14] left 0x10/0x16 dangling, which corrupted the
+     * cross-module EH chain non-deterministically.) */
+    uint16_t saved_exc_head_10 = mem_read16(cpu, cpu->ss, 0x10);
+    uint16_t saved_exc_head    = mem_read16(cpu, cpu->ss, 0x14);
+    uint16_t saved_exc_head_16 = mem_read16(cpu, cpu->ss, 0x16);
     cpu->ds = cpu->es = (g_wndproc_seg <= 59) ? CATZ_DLL_AUTO_DATA_SEG : CATZ_AUTO_DATA_SEG;
     push16(cpu, hwnd);
     push16(cpu, msg);
@@ -80,8 +86,10 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
     uint32_t hn = cpu->heap_next; uint16_t ns = cpu->next_sel;
     *cpu = save;
     cpu->mem = mem; cpu->sel_base = sel; cpu->heap_next = hn; cpu->next_sel = ns;
-    /* Put the cleanup-chain head back: the WNDPROC's frames no longer exist. */
+    /* Put the cleanup/catch chain heads back: the WNDPROC's frames no longer exist. */
+    mem_write16(cpu, cpu->ss, 0x10, saved_exc_head_10);
     mem_write16(cpu, cpu->ss, 0x14, saved_exc_head);
+    mem_write16(cpu, cpu->ss, 0x16, saved_exc_head_16);
     return ret;
 }
 
