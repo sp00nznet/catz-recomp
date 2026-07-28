@@ -65,6 +65,25 @@ void catz_sp_check(const char *nm)
 }
 #endif
 
+/* Runaway recursion in lifted code kills the host with STATUS_STACK_OVERFLOW and
+ * no clue where. Dump the tail of the call ring in order — a recursion shows up
+ * as a repeating cycle. SetThreadStackGuarantee (in main) leaves us enough stack
+ * to actually run this handler. */
+static LONG CALLBACK stack_overflow_veh(EXCEPTION_POINTERS *ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_STACK_OVERFLOW)
+        return EXCEPTION_CONTINUE_SEARCH;
+    fprintf(stderr, "\n[STACK-OVERFLOW] host stack exhausted; last 64 calls "
+                    "(oldest first), total=%u:\n", g_fn_ring_pos);
+    for (int i = 64; i > 0; i--) {
+        const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+        if (nm) fprintf(stderr, "  %s\n", nm);
+    }
+    fflush(stderr);
+    _exit(98);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 void dump_fn_ring(int n)
 {
     if (n <= 0 || n > (int)CATZ_FN_RING_SIZE) n = (int)CATZ_FN_RING_SIZE;
@@ -118,6 +137,14 @@ static int load_image(CPU *cpu, const char *path)
 int main(int argc, char *argv[])
 {
     const char *img = (argc > 1) ? argv[1] : CATZ_IMAGE_PATH;
+
+    /* Unbuffered: the engine dies by crash/abort often enough that a lost
+     * stdout buffer hides exactly the lines that say where it got to. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+
+    ULONG guarantee = 64 * 1024;
+    SetThreadStackGuarantee(&guarantee);
+    AddVectoredExceptionHandler(1, stack_overflow_veh);
 
     CPU cpu;
     cpu_init(&cpu);
