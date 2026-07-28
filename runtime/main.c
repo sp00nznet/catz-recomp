@@ -173,6 +173,10 @@ static int load_image(CPU *cpu, const char *path)
     return 1;
 }
 
+#ifdef CATZ_WATCH_MEM
+static void catz_watch_init(void);
+#endif
+
 int main(int argc, char *argv[])
 {
     const char *img = (argc > 1) ? argv[1] : CATZ_IMAGE_PATH;
@@ -184,6 +188,9 @@ int main(int argc, char *argv[])
     ULONG guarantee = 64 * 1024;
     SetThreadStackGuarantee(&guarantee);
     AddVectoredExceptionHandler(1, stack_overflow_veh);
+#ifdef CATZ_WATCH_MEM
+    catz_watch_init();
+#endif
 
     CPU cpu;
     cpu_init(&cpu);
@@ -250,3 +257,25 @@ void catz_unreachable(const char *seg, unsigned off)
     dump_guest_stack(g_cpu, 40);
     _exit(97);
 }
+
+#ifdef CATZ_WATCH_MEM
+uint16_t g_watch_seg = 0xFFFF, g_watch_off = 0xFFFF;
+
+void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val)
+{
+    static int n = 0;
+    if (n++ >= 12) return;
+    fprintf(stderr, "\n[WATCH] write %04X:%04X = %04X\n", seg, off, val);
+    dump_guest_stack(g_cpu, 24);
+}
+
+static void catz_watch_init(void)
+{
+    const char *w = getenv("CATZ_WATCH");
+    unsigned s, o;
+    if (w && sscanf(w, "%x:%x", &s, &o) == 2) {
+        g_watch_seg = (uint16_t)s; g_watch_off = (uint16_t)o;
+        fprintf(stderr, "[WATCH] armed on %04X:%04X\n", g_watch_seg, g_watch_off);
+    }
+}
+#endif

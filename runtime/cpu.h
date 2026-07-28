@@ -188,8 +188,22 @@ static inline uint16_t mem_read16(CPU *cpu, uint16_t seg, uint16_t off) {
     return (uint16_t)cpu->mem[addr] | ((uint16_t)cpu->mem[addr + 1] << 8);
 }
 
+/* Write watchpoint: set CATZ_WATCH=seg:off (hex) to get a host backtrace at
+ * every write to that guest address. Finding "who filled this struct field with
+ * garbage" by grepping the lifted code does not converge — struct offsets repeat
+ * across unrelated classes — but a watchpoint names the writer in one run. */
+#ifdef CATZ_WATCH_MEM
+extern uint16_t g_watch_seg, g_watch_off;
+void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val);
+#define CATZ_WATCH_CHECK(s, o, v) \
+    do { if ((s) == g_watch_seg && (o) == g_watch_off) catz_watch_hit((s), (o), (v)); } while (0)
+#else
+#define CATZ_WATCH_CHECK(s, o, v) ((void)0)
+#endif
+
 static inline void mem_write16(CPU *cpu, uint16_t seg, uint16_t off, uint16_t val) {
     uint32_t addr = seg_off(cpu, seg, off);
+    CATZ_WATCH_CHECK(seg, off, val);
 #ifdef CATZ_WATCH_EXC
     {   /* Stack-overflow detector: log the first time sp descends below a low
          * watermark — catches whatever is consuming the stack toward underflow. */
