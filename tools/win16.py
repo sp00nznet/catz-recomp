@@ -124,6 +124,7 @@ PURGE = {
     ('USER', 'SETWINDOWLONG'): 8, ('USER', 'CLIPCURSOR'): 4, ('USER', 'LOADCURSOR'): 6,
     ('USER', 'LOADSTRING'): 10, ('USER', 'GETSYSCOLOR'): 2, ('USER', 'RELEASECAPTURE'): 0,
     ('USER', 'LOADBITMAP'): 6,          # HINSTANCE + far LPCSTR
+    ('USER', 'SETWINDOWPOS'): 14,       # hWnd, hWndInsertAfter, x, y, cx, cy, flags
     ('USER', 'ENUMTASKWINDOWS'): 10, ('USER', 'ENUMWINDOWS'): 8, ('USER', 'GETFOCUS'): 0,
     ('USER', 'CREATEDIALOGPARAM'): 16, ('USER', 'GETASYNCKEYSTATE'): 2,
     ('USER', 'SELECTPALETTE'): 6, ('USER', 'REALIZEPALETTE'): 2,

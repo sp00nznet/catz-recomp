@@ -240,3 +240,13 @@ int main(int argc, char *argv[])
     cpu_free(&cpu);
     return 0;
 }
+
+/* A branch whose target the decoder never resolved (see ne_lift). Reaching one
+ * means we are executing a path the static recompile does not cover — say so
+ * with a stack rather than wandering off. */
+void catz_unreachable(const char *seg, unsigned off)
+{
+    fprintf(stderr, "\n[UNLIFTED] branch into seg%s:%04X has no lifted code\n", seg, off);
+    dump_guest_stack(g_cpu, 40);
+    _exit(97);
+}

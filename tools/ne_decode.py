@@ -118,8 +118,11 @@ def load_ida_data(ne: NEHeader) -> dict:
 def collect_internal_code_targets(ne: NEHeader) -> dict:
     """Map (1-based code seg index) -> set of offsets that are far-call/far-ptr
     targets from ANY segment's relocations. These are authoritative function
-    entry points. Cached on the NEHeader. Only FAR_PTR(3)/PTR48(11) internal
-    relocations carry a real code offset; SELECTOR(2) loads only set a segment."""
+    entry points. Cached on the NEHeader. FAR_PTR(3)/PTR48(11) carry a full
+    seg:off, and OFFSET16(5)/OFFSET32(13) carry a real offset within the target
+    code segment — Borland stores C++ catch-handler addresses that way, so
+    dropping type 5 left every such handler unlifted. SELECTOR(2) loads only set
+    a segment and carry no offset, so they stay excluded."""
     cache = getattr(ne, '_internal_code_targets', None)
     if cache is not None:
         return cache
@@ -128,7 +131,7 @@ def collect_internal_code_targets(ne: NEHeader) -> dict:
         for r in s.relocations:
             if (r.flags & 3) != 0:          # not an internal reference
                 continue
-            if r.src_type not in (3, 11):   # FAR_PTR / PTR48 only
+            if r.src_type not in (3, 5, 11, 13):   # carry a real code offset
                 continue
             tseg = r.target_seg
             if tseg == 0xFF or not (1 <= tseg <= len(ne.segments)):
@@ -343,6 +346,45 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
     forced_entries = set(collect_internal_code_targets(ne).get(seg.index, set()))
     if seg_ida and seg_ida.get('functions'):
         forced_entries.update(seg_ida['functions'])  # authoritative IDA entries
+
+    # A relocation that stores a far pointer INTO this code segment names a real
+    # entry point by definition, but IDA does not always mark it as a head — a
+    # C++ catch handler reached only through a runtime-built EH table looks like
+    # data to a static sweep. Such an entry then has no lifted label, the runtime
+    # dispatcher misses it, and (for EH) no handler is ever found, so the program
+    # terminates instead of catching. Decode at those offsets too; the rest of
+    # the function follows from the heads that IDA did find.
+    # ponytail: relocation targets only. Recovering every un-decoded relative
+    # BRANCH target as well was tried and reverted — it re-synced through enough
+    # data-as-code to mis-split real functions, and the engine hung in LibMain.
+    # A relocation target is authoritative in a way a branch out of a mis-decoded
+    # byte run is not. The few branches left with no lifted target become
+    # catz_unreachable(), which says so loudly if ever executed.
+    def recover(addrs, have):
+        added = False
+        for off in sorted(a for a in addrs if 0 <= a < len(seg.data) and a not in have):
+            decoder.pos = off
+            for _ in range(512):
+                pos = decoder.pos
+                if pos >= len(seg.data) or pos in have:
+                    break
+                try:
+                    inst = decoder.decode_one()
+                except IndexError:
+                    break          # ran off the end of the segment mid-instruction
+                if inst is None:
+                    break
+                instructions.append(inst)
+                have.add(pos)
+                added = True
+                if inst.mnemonic in ('ret', 'retf', 'iret', 'jmp'):
+                    break
+        return added
+
+    have = {i.offset - seg.file_offset for i in instructions}
+    recover(forced_entries, have)
+    instructions.sort(key=lambda i: i.offset)
+
     functions = detect_functions(seg, instructions, forced_entries)
 
     return instructions, functions, reloc_map

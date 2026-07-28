@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <windows.h>
 
 #ifdef CATZ_TRACE_WIN16
 #define IMPL_LOG(...) fprintf(stderr, __VA_ARGS__)
@@ -490,8 +491,18 @@ static int dos_map_path(CPU *cpu, char *host, int hostsz) {
     for (; g[i]; i++) low[i] = (g[i] >= 'A' && g[i] <= 'Z') ? (char)(g[i] + 32) : g[i];
     low[i] = 0;
     char *p = strstr(low, "ptzfiles");
-    if (!p) return 0;                  /* only the game data tree is served */
-    snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, g + (p - low));
+    if (p) {
+        snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, g + (p - low));
+    } else {
+        /* Everything else the engine opens by absolute guest path (pet .cat
+         * files, sound/config files) lives in the install root; the guest drive
+         * and directory are whatever the original install used, so match on the
+         * leaf only. */
+        const char *leaf = g;
+        for (const char *q = g; *q; q++) if (*q == '\\' || *q == '/') leaf = q + 1;
+        if (!*leaf) return 0;
+        snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, leaf);
+    }
     for (char *q = host; *q; q++) if (*q == '\\') *q = '/';
     return 1;
 }
@@ -577,4 +588,168 @@ void dos_int21(CPU *cpu) {
         break;
     }
     /* `int` is not a far call - no stack frame to clean. */
+}
+
+/* ===== KERNEL: private profile (INI) =====
+ * The engine reads its per-pet configuration out of the game's INI files; with
+ * the stub returning empty it composed filenames from an empty key and threw an
+ * XStruct "file not found". Serve them from the real INIs in CATZ_DATA_DIR. */
+
+/* Guest INI paths are absolute DOS ("C:\CATZ\KITTENZ.INI") or bare names. Only
+ * the leaf matters — everything the game reads lives in the install root.
+ *
+ * A NULL/empty filename means WIN.INI under Win16, and the installer put the
+ * game's [Catz] settings there. We have no Windows 3.1 WIN.INI, so fall back to
+ * the INIs shipped in the install (LASTCAT.INI holds "This Last Cat", the pet
+ * file the engine loads at startup). Anything not found there still gets the
+ * caller's default, which is what the game ships with anyway. */
+static const char *const INI_FALLBACKS[] = { CATZ_WIN_INI, "LASTCAT.INI", "KITTENZ.INI" };
+
+static void ini_host_path(const char *guest, char *out, int outsz) {
+    const char *leaf = guest;
+    for (const char *q = guest; *q; q++) if (*q == '\\' || *q == '/') leaf = q + 1;
+    snprintf(out, outsz, "%s/%s", CATZ_DATA_DIR, leaf);
+}
+
+/* Resolve which host INI actually answers (app,key); empty guest name searches
+ * the fallbacks in order. Returns 1 and fills `out` on a hit. */
+static int ini_resolve(const char *guest, const char *app, const char *key,
+                       char *out, int outsz) {
+    /* A named INI wins if we actually have it. If we don't (the game names
+     * C:\WINDOWS\catz.ini / catzdbug.ini, which only exist on a real Win3.1
+     * install), fall through to the substitutes below rather than answering
+     * from a file that isn't there. */
+    if (guest && guest[0]) {
+        ini_host_path(guest, out, outsz);
+        FILE *probe = fopen(out, "rb");
+        if (probe) { fclose(probe); return 1; }
+    }
+    for (unsigned i = 0; i < sizeof INI_FALLBACKS / sizeof INI_FALLBACKS[0]; i++) {
+        const char *f = INI_FALLBACKS[i];
+        if (strchr(f, '/'))  snprintf(out, outsz, "%s", f);          /* already a host path */
+        else                 snprintf(out, outsz, "%s/%s", CATZ_DATA_DIR, f);
+        char probe[8];
+        if (GetPrivateProfileStringA(app, key, "\1", probe, sizeof probe, out) &&
+            probe[0] != '\1')
+            return 1;
+    }
+    return 0;                       /* no hit: caller's default stands */
+}
+
+void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
+    /* (lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, lpFileName) */
+    uint16_t fnoff = a16(cpu, 0),  fnseg = a16(cpu, 2);
+    uint16_t nsize = a16(cpu, 4);
+    uint16_t rsoff = a16(cpu, 6),  rsseg = a16(cpu, 8);
+    uint16_t dfoff = a16(cpu, 10), dfseg = a16(cpu, 12);
+    uint16_t kyoff = a16(cpu, 14), kyseg = a16(cpu, 16);
+    uint16_t apoff = a16(cpu, 18), apseg = a16(cpu, 20);
+
+    char app[128] = "", key[128] = "", def[256] = "", file[192] = "";
+    if (apseg) read_asciiz(cpu, apseg, apoff, app, sizeof app);
+    if (kyseg) read_asciiz(cpu, kyseg, kyoff, key, sizeof key);
+    if (dfseg) read_asciiz(cpu, dfseg, dfoff, def, sizeof def);
+    if (fnseg) read_asciiz(cpu, fnseg, fnoff, file, sizeof file);
+
+    char host[320]; ini_resolve(file, app, key, host, sizeof host);
+    char val[1024];
+    DWORD n = GetPrivateProfileStringA(apseg ? app : NULL, kyseg ? key : NULL,
+                                       def, val, sizeof val, host);
+    if (n > (DWORD)nsize) n = nsize ? (DWORD)nsize - 1 : 0;   /* clamp to guest buffer */
+    for (DWORD i = 0; i < n; i++) mem_write8(cpu, rsseg, (uint16_t)(rsoff + i), (uint8_t)val[i]);
+    if (nsize) mem_write8(cpu, rsseg, (uint16_t)(rsoff + n), 0);
+
+    fprintf(stderr, "[ini] GetPrivateProfileString(%s, [%s] %s, def=\"%s\") -> \"%s\"\n",
+            file, app, key, def, n ? val : "");
+    cpu->ax = (uint16_t)n;
+    ret(cpu, 22);
+}
+
+void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) {
+    /* (lpAppName, lpKeyName, nDefault, lpFileName) */
+    uint16_t fnoff = a16(cpu, 0), fnseg = a16(cpu, 2);
+    uint16_t ndef  = a16(cpu, 4);
+    uint16_t kyoff = a16(cpu, 6),  kyseg = a16(cpu, 8);
+    uint16_t apoff = a16(cpu, 10), apseg = a16(cpu, 12);
+
+    char app[128] = "", key[128] = "", file[192] = "";
+    if (apseg) read_asciiz(cpu, apseg, apoff, app, sizeof app);
+    if (kyseg) read_asciiz(cpu, kyseg, kyoff, key, sizeof key);
+    if (fnseg) read_asciiz(cpu, fnseg, fnoff, file, sizeof file);
+
+    char host[320]; ini_resolve(file, app, key, host, sizeof host);
+    cpu->ax = (uint16_t)GetPrivateProfileIntA(app, key, ndef, host);
+    fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s] %s) -> %u\n", file, app, key, cpu->ax);
+    ret(cpu, 14);
+}
+
+/* ===== USER: wsprintf =====
+ * The engine formats filenames, resource keys and its whole debug log through
+ * this; with the stub returning an empty buffer it composed empty paths and
+ * threw "file not found". _wsprintf is the cdecl variant (caller cleans), so
+ * the purge is 0 and we just walk the arg words ourselves. Supports the subset
+ * Win16 wsprintf actually documents: %s (far ptr), %c, %d/%i/%u/%x/%X with an
+ * optional l (DWORD) size, %%, plus '-'/'0' flags and a width. */
+void USER__WSPRINTF(CPU *cpu) {
+    uint16_t ooff = a16(cpu, 0), oseg = a16(cpu, 2);
+    uint16_t foff = a16(cpu, 4), fseg = a16(cpu, 6);
+    int argi = 8;                          /* next vararg word, bytes from sp+4 */
+
+    char fmt[512]; read_asciiz(cpu, fseg, foff, fmt, sizeof fmt);
+    char out[1024]; int n = 0;
+
+    for (const char *p = fmt; *p && n < (int)sizeof out - 1; p++) {
+        if (*p != '%') { out[n++] = *p; continue; }
+        p++;
+        if (*p == '%') { out[n++] = '%'; continue; }
+
+        int left = 0, zero = 0, width = 0, lng = 0;
+        for (; *p == '-' || *p == '0'; p++) { if (*p == '-') left = 1; else zero = 1; }
+        for (; *p >= '0' && *p <= '9'; p++) width = width * 10 + (*p - '0');
+        if (*p == '.') { p++; while (*p >= '0' && *p <= '9') p++; }   /* precision: ignored */
+        if (*p == 'l' || *p == 'L') { lng = 1; p++; }
+
+        char item[512]; item[0] = 0;
+        switch (*p) {
+        case 's': {
+            uint16_t soff = a16(cpu, argi), sseg = a16(cpu, argi + 2); argi += 4;
+            read_asciiz(cpu, sseg, soff, item, sizeof item);
+            break;
+        }
+        case 'c':
+            item[0] = (char)a16(cpu, argi); item[1] = 0; argi += 2;
+            break;
+        case 'd': case 'i': {
+            long v = lng ? (long)(int32_t)a32(cpu, argi) : (long)(int16_t)a16(cpu, argi);
+            argi += lng ? 4 : 2;
+            snprintf(item, sizeof item, "%ld", v);
+            break;
+        }
+        case 'u': {
+            unsigned long v = lng ? (unsigned long)a32(cpu, argi) : (unsigned long)a16(cpu, argi);
+            argi += lng ? 4 : 2;
+            snprintf(item, sizeof item, "%lu", v);
+            break;
+        }
+        case 'x': case 'X': {
+            unsigned long v = lng ? (unsigned long)a32(cpu, argi) : (unsigned long)a16(cpu, argi);
+            argi += lng ? 4 : 2;
+            snprintf(item, sizeof item, *p == 'x' ? "%lx" : "%lX", v);
+            break;
+        }
+        default:                            /* unknown conversion: emit literally */
+            item[0] = '%'; item[1] = *p; item[2] = 0;
+            break;
+        }
+
+        int ilen = (int)strlen(item), pad = width > ilen ? width - ilen : 0;
+        if (!left) for (int i = 0; i < pad && n < (int)sizeof out - 1; i++) out[n++] = zero ? '0' : ' ';
+        for (int i = 0; i < ilen && n < (int)sizeof out - 1; i++) out[n++] = item[i];
+        if (left)  for (int i = 0; i < pad && n < (int)sizeof out - 1; i++) out[n++] = ' ';
+    }
+    out[n] = 0;
+
+    for (int i = 0; i <= n; i++) mem_write8(cpu, oseg, (uint16_t)(ooff + i), (uint8_t)out[i]);
+    cpu->ax = (uint16_t)n;
+    ret(cpu, 0);                            /* cdecl: caller cleans the args */
 }

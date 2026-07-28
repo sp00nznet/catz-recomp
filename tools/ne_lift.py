@@ -11,6 +11,7 @@ Usage:
     python ne_lift.py <ne_exe> --seg N [--func OFFSET] [--all]
 """
 
+import re
 import sys
 import os
 from typing import Optional
@@ -602,6 +603,18 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
         # which is meaningless for NE protected mode — segments are selectors,
         # not paragraphs. We emit the correct label-based fall-through below.
         code = '\n'.join(l for l in code.split('\n') if '/* fallthrough 0x' not in l)
+
+        # Same for its tail-jcc form. These are branches whose target we could
+        # not decode at all (typically a target past the end of the segment,
+        # reached only from a mis-decoded byte run), so there is no label to
+        # jump to. Make it explicit and loud instead of emitting a call to an
+        # undeclared real-mode dispatcher.
+        def _unreachable(m):
+            addr = (int(m.group(1), 16) << 4) | int(m.group(2), 16)
+            return (f'catz_unreachable("{seg.index:03d}", 0x{addr - seg.file_offset:04X});'
+                    f' return; /* unlifted branch target */')
+        code = re.sub(r'recomp_dispatch\(cpu, 0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\); return;',
+                      _unreachable, code)
 
         # Fall-through: if the last instruction is not a control-flow terminator,
         # execution flows into the next function. Emit that as a tail call so the

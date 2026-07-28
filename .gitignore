@@ -24,3 +24,6 @@ __pycache__/
 build_wx/
 build_tr/
 build_sp/
+
+# Diagnostic build variants (watchdog / sp-watch / dispatch-trace)
+build_*/

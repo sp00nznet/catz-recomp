@@ -13,6 +13,7 @@
  * Drawing (GDI/WinG) is layered on top as the engine calls it.
  */
 #include "runtime_api.h"
+#include "ne_resources.h"
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
@@ -45,6 +46,15 @@ static uint16_t put_hdc(HDC h) {
     return 0;
 }
 static HDC get_hdc(uint16_t g) { return (g && g < MAXH) ? g_hdc[g] : NULL; }
+
+/* GDI objects (bitmaps so far) get their own guest handle space. */
+#define MAXGDI 256
+static HGDIOBJ g_gdi[MAXGDI];
+static int g_ngdi = 1;
+static uint16_t put_hgdi(HGDIOBJ h) {
+    if (!h || g_ngdi >= MAXGDI) return 0;
+    g_gdi[g_ngdi] = h; return (uint16_t)g_ngdi++;
+}
 
 /* ---- the guest window procedure captured from RegisterClass ---- */
 static uint16_t g_wndproc_seg = 0, g_wndproc_off = 0;
@@ -231,4 +241,56 @@ void USER_DISPATCHMESSAGE(CPU *cpu) {
               | ((uint32_t)mem_read16(cpu, mseg, (uint16_t)(moff + 8)) << 16);
     DispatchMessageA(&m);
     cpu->ax = 0; b_ret(cpu, 4);
+}
+
+/* ---- resources: LoadBitmap ---- */
+
+static void b_asciiz(CPU *cpu, uint16_t seg, uint16_t off, char *out, int max) {
+    int i = 0;
+    for (; i < max - 1; i++) {
+        char c = (char)mem_read8(cpu, seg, (uint16_t)(off + i));
+        if (!c) break;
+        out[i] = c;
+    }
+    out[i] = 0;
+}
+
+/* LoadBitmap(HINSTANCE, LPCSTR) — a Win16 RT_BITMAP resource is a packed DIB:
+ * BITMAPINFOHEADER, color table, then bits (no BITMAPFILEHEADER). Hand it to
+ * GDI32 as a real HBITMAP so the engine's SelectObject/BitBlt path works. */
+void USER_LOADBITMAP(CPU *cpu) {
+    uint16_t noff = b_a16(cpu, 0), nseg = b_a16(cpu, 2), hinst = b_a16(cpu, 4);
+
+    /* MAKEINTRESOURCE: a far pointer with a zero segment is an integer id. */
+    char name[128] = "";
+    int id = -1;
+    if (nseg == 0) id = noff;
+    else b_asciiz(cpu, nseg, noff, name, sizeof name);
+
+    uint16_t hrsrc = ne_find_resource(hinst, 2 /* RT_BITMAP */, NULL,
+                                      id, id < 0 ? name : NULL);
+    uint32_t len = 0;
+    const uint8_t *p = hrsrc ? ne_resource_bytes(hrsrc, &len) : NULL;
+    if (!p || len < sizeof(BITMAPINFOHEADER)) {
+        fprintf(stderr, "[win32] LoadBitmap(%04X, %s) NOT FOUND\n",
+                hinst, id >= 0 ? "#id" : name);
+        cpu->ax = 0; b_ret(cpu, 6); return;
+    }
+
+    const BITMAPINFOHEADER *bih = (const BITMAPINFOHEADER *)p;
+    /* Colour table size: explicit biClrUsed, else 2^bitcount for <=8bpp. */
+    unsigned ncolors = bih->biClrUsed;
+    if (!ncolors && bih->biBitCount <= 8) ncolors = 1u << bih->biBitCount;
+    const uint8_t *bits = p + bih->biSize + ncolors * sizeof(RGBQUAD);
+
+    HDC dc = GetDC(NULL);
+    HBITMAP hbm = CreateDIBitmap(dc, bih, CBM_INIT, bits,
+                                 (const BITMAPINFO *)bih, DIB_RGB_COLORS);
+    ReleaseDC(NULL, dc);
+
+    cpu->ax = put_hgdi(hbm);
+    fprintf(stderr, "[win32] LoadBitmap(%04X, %s) %ldx%ld %ubpp -> guest=%u\n",
+            hinst, id >= 0 ? "#id" : name, (long)bih->biWidth, (long)bih->biHeight,
+            bih->biBitCount, cpu->ax);
+    b_ret(cpu, 6);
 }

@@ -62,8 +62,6 @@ void GDI_STRETCHBLT(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHBLT"); cpu->ax = 0;
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
 
 /* ===== KERNEL ===== */
-void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPRIVATEPROFILEINT"); cpu->ax = 0; cpu->sp += 4 + 14; }
-void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("GETPRIVATEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4 + 22; }
 void KERNEL_GETPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPROFILEINT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETPROFILEINT"); }
 void KERNEL_GETSYSTEMDIRECTORY(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSTEMDIRECTORY"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETSYSTEMDIRECTORY"); }
 void KERNEL_GLOBALDOSALLOC(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSALLOC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GLOBALDOSALLOC"); }
@@ -169,7 +167,6 @@ void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKE
 void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISICONIC"); }
 void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISWINDOWVISIBLE"); }
 void USER_KILLTIMER(CPU *cpu) { (void)cpu; WIN16_LOG("KILLTIMER"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_LOADBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("LOADBITMAP"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_OFFSETRECT(CPU *cpu) { (void)cpu; WIN16_LOG("OFFSETRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
@@ -191,12 +188,11 @@ void USER_SETSCROLLPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLPOS"); cpu->ax
 void USER_SETSCROLLRANGE(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLRANGE"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_SETTIMER(CPU *cpu) { (void)cpu; WIN16_LOG("SETTIMER"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_SETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_SETWINDOWPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWPOS"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SETWINDOWPOS"); }
+void USER_SETWINDOWPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWPOS"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_SETWINDOWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWTEXT"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_SWAPMOUSEBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("SWAPMOUSEBUTTON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SWAPMOUSEBUTTON"); }
 void USER_SYSTEMPARAMETERSINFO(CPU *cpu) { (void)cpu; WIN16_LOG("SYSTEMPARAMETERSINFO"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SYSTEMPARAMETERSINFO"); }
 void USER_WINHELP(CPU *cpu) { (void)cpu; WIN16_LOG("WINHELP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINHELP"); }
-void USER__WSPRINTF(CPU *cpu) { (void)cpu; WIN16_LOG("_WSPRINTF"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("_WSPRINTF"); }
 
 /* ===== WIN87EM ===== */
 void WIN87EM___FPMATH(CPU *cpu) { (void)cpu; WIN16_LOG("__FPMATH"); cpu->ax = 0; cpu->sp += 4 + 0; }

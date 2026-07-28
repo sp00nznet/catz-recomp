@@ -38,7 +38,8 @@ if(RUNTIME_SOURCES)
     target_include_directories(catz_runtime PRIVATE runtime)
     target_compile_definitions(catz_runtime PRIVATE
         CATZ_GAME_DIR="${CMAKE_SOURCE_DIR}/game"
-        CATZ_DATA_DIR="${CMAKE_SOURCE_DIR}/../catzng/catz")
+        CATZ_DATA_DIR="${CMAKE_SOURCE_DIR}/../catzng/catz"
+        CATZ_WIN_INI="${CMAKE_SOURCE_DIR}/runtime/win16/win_ini.ini")
 endif()
 
 # Host: CATZ.EXE-equivalent window shell that loads the engine and drives it.

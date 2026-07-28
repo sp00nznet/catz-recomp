@@ -254,3 +254,6 @@ void WING_WINGRECOMMENDDIBFORMAT(CPU *cpu);  /* @1002 WINGRECOMMENDDIBFORMAT */
 void WING_WINGSTRETCHBLT(CPU *cpu);  /* @1009 WINGSTRETCHBLT */
 
 #endif /* CATZ_RUNTIME_API_H */
+
+/* Reached a branch target the lifter could not decode (defined in main.c). */
+void catz_unreachable(const char *seg, unsigned off);
