@@ -229,6 +229,39 @@ class NELifter(Lifter):
                                        f'{orig} -- offset of {mod}.{r.ordinal}')
                             return
 
+        # --- BCD adjust instructions ---
+        # The shared lifter emits these as "/* BCD: ... - stub */", i.e. drops
+        # them. That is not cosmetic here: AAM is *the* decimal digit-extraction
+        # step in Borland's number formatting (AH = AL/10, AL = AL%10), and the
+        # DAA pair implements the binary->ASCII-hex idiom
+        # (add al,0x90; daa; adc al,0x40; daa). With both dropped, printf-family
+        # conversions produce nothing usable.
+        if m in ('aam', 'aad', 'daa', 'das'):
+            base = op1.disp if (op1 and op1.type in (OpType.IMM8, OpType.IMM16)) else 10
+            if m == 'aam':
+                self._emit(f'{{ uint8_t _v = cpu->al; cpu->ah = (uint8_t)(_v / {base}); '
+                           f'cpu->al = (uint8_t)(_v % {base}); set_szp8(cpu, cpu->al); }}', orig)
+            elif m == 'aad':
+                self._emit(f'{{ uint8_t _v = (uint8_t)(cpu->al + cpu->ah * {base}); '
+                           f'cpu->al = _v; cpu->ah = 0; set_szp8(cpu, cpu->al); }}', orig)
+            elif m == 'daa':
+                self._emit('{ uint8_t _o = cpu->al; int _c = cf(cpu); cpu->flags &= ~FLAG_CF;\n'
+                           '      if ((cpu->al & 0x0F) > 9 || (cpu->flags & FLAG_AF)) {\n'
+                           '          _c |= (cpu->al > 0xF9); cpu->al = (uint8_t)(cpu->al + 6);\n'
+                           '          cpu->flags |= FLAG_AF; } else cpu->flags &= ~FLAG_AF;\n'
+                           '      if (_o > 0x99 || _c) { cpu->al = (uint8_t)(cpu->al + 0x60);\n'
+                           '          cpu->flags |= FLAG_CF; }\n'
+                           '      set_szp8(cpu, cpu->al); }', orig)
+            else:  # das
+                self._emit('{ uint8_t _o = cpu->al; int _c = cf(cpu); cpu->flags &= ~FLAG_CF;\n'
+                           '      if ((cpu->al & 0x0F) > 9 || (cpu->flags & FLAG_AF)) {\n'
+                           '          _c |= (cpu->al < 6); cpu->al = (uint8_t)(cpu->al - 6);\n'
+                           '          cpu->flags |= FLAG_AF; } else cpu->flags &= ~FLAG_AF;\n'
+                           '      if (_o > 0x99 || _c) { cpu->al = (uint8_t)(cpu->al - 0x60);\n'
+                           '          cpu->flags |= FLAG_CF; }\n'
+                           '      set_szp8(cpu, cpu->al); }', orig)
+            return
+
         # --- Default: delegate to base lifter ---
         super().lift_instruction(inst, func_start)
 
