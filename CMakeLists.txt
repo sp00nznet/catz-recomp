@@ -9,7 +9,9 @@ set(CMAKE_C_STANDARD 11)
 # (-O2) turns it back into a loop; at -O0 the palette inverse-table build
 # (seg044 12AD/1356/1357, 4096*256 iterations) blows any host stack.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_C_FLAGS MATCHES "-O")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
+    # -g1: function names + line tables only, so addr2line can symbolize the
+    # host backtrace that stands in for the guest call stack.
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -g1")
 endif()
 
 # Lifted segment sources (generated into src/ by ne_lift + gen_* tools).
@@ -47,5 +49,9 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/runtime/main.c" AND SEGMENT_SOURCES)
     target_link_libraries(catz catz_segments catz_runtime m user32 gdi32)
     # Lifted frames are far fatter than the 16-bit originals; the engine's C++
     # construction recurses deep enough to blow the 1 MB default host stack.
-    target_link_options(catz PRIVATE -Wl,--stack,268435456)
+    # No ASLR: runtime addresses == file VAs, so backtrace output can be pasted
+    # straight into addr2line.
+    target_link_options(catz PRIVATE -Wl,--stack,268435456
+                                     -Wl,--disable-dynamicbase
+                                     -Wl,--disable-high-entropy-va)
 endif()

@@ -169,7 +169,7 @@ void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKE
 void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISICONIC"); }
 void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISWINDOWVISIBLE"); }
 void USER_KILLTIMER(CPU *cpu) { (void)cpu; WIN16_LOG("KILLTIMER"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_LOADBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("LOADBITMAP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("LOADBITMAP"); }
+void USER_LOADBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("LOADBITMAP"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_OFFSETRECT(CPU *cpu) { (void)cpu; WIN16_LOG("OFFSETRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }

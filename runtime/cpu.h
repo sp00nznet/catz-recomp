@@ -125,6 +125,13 @@ typedef struct CPU {
     int halted;
 } CPU;
 
+/* Print the guest call stack. Defined in main.c. */
+void dump_guest_stack(CPU *cpu, int max);
+
+/* Reported by the bpguard instrumentation when a callee returns with bp
+ * changed (bp is callee-saved in every Borland Win16 frame). */
+void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
+
 /* ── Memory access ─────────────────────────────────────────── */
 
 /*

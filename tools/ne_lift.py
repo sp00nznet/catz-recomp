@@ -597,6 +597,12 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
         # Inject an entry-trace marker (compiles to nothing without -DELFISH_TRACE_FN)
         code = code.replace('{\n', '{\n    TRACE_FN("%s");\n' % func.label, 1)
 
+        # Drop lift16's own fall-through line. It resolves the next address as a
+        # real-mode seg:off pair (`recomp_dispatch(cpu, addr>>4, addr&0xF)`),
+        # which is meaningless for NE protected mode — segments are selectors,
+        # not paragraphs. We emit the correct label-based fall-through below.
+        code = '\n'.join(l for l in code.split('\n') if '/* fallthrough 0x' not in l)
+
         # Fall-through: if the last instruction is not a control-flow terminator,
         # execution flows into the next function. Emit that as a tail call so the
         # control flow isn't lost at the function boundary.

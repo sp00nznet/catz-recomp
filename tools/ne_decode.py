@@ -199,6 +199,32 @@ def detect_functions(seg: Segment, instructions: list, forced_entries=None) -> l
                 if v >= 0x10 and v in valid:
                     starts.add(v)
 
+    # Jump/vtable tables stored IN this code segment: `jmp word cs:[bx+0x49DB]`
+    # (Borland's switch dispatch) reads its targets from data sitting between
+    # functions, so they are invisible to the branch/immediate seeding above —
+    # the target never becomes a lifted label, the runtime dispatcher misses,
+    # and its miss path corrupts sp. Read the table straight out of the segment
+    # instead. No need to find the `cmp reg,N` bound: walk while each word is a
+    # valid instruction boundary and stop at the first that is not, which is
+    # exactly where the table ends. Over-seeding is safe (basic-block model).
+    for inst in instructions:
+        if inst.mnemonic not in ('jmp', 'call'):
+            continue
+        opnd = inst.op1
+        if not opnd or opnd.type != OpType.MEM or opnd.size != 2:
+            continue
+        if not opnd.base and not opnd.index:
+            continue                       # absolute [addr], not a table walk
+        tbl = opnd.disp & 0xFFFF
+        for k in range(256):
+            p = tbl + 2 * k
+            if p + 2 > len(seg.data):
+                break
+            tgt = seg.data[p] | (seg.data[p + 1] << 8)
+            if tgt not in valid:
+                break
+            starts.add(tgt)
+
     # Far-call targets into this segment (only ones on instruction boundaries)
     for off in forced_entries:
         if off in valid:

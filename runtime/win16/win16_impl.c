@@ -354,6 +354,7 @@ void USER_MESSAGEBOX(CPU *cpu) {
         fprintf(stderr, "[abort] recent 120 fns:");
         for (int i = 120; i > 0; i--) { const char *r = g_fn_ring[(g_fn_ring_pos-(unsigned)i) & ((1u<<12)-1)]; if (r) fprintf(stderr, " %s", r+3); }
         fprintf(stderr, "\n");
+        dump_guest_stack(cpu, 40);
     }
     cpu->ax = 1;                            /* IDOK */
     ret(cpu, 12);

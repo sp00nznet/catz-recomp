@@ -45,25 +45,53 @@ unsigned g_fn_ring_pos = 0;
 CPU *g_cpu = NULL;
 
 #ifdef CATZ_WATCH_SP
-/* See cpu.h: flag the first guest sp upward jump >0x100 (imbalanced callee). */
+/* See cpu.h: the guest stack is one 64 KB segment and it drains. Report the
+ * call chain each time sp crosses a new low-water mark — if the chain repeats
+ * at every threshold the stack is leaking (a callee not balancing its frame);
+ * if it keeps growing it is honest recursion. */
 void catz_sp_check(const char *nm)
 {
-    static uint16_t last = 0xFFFE; static int armed = 0, fired = 0;
+    static const uint16_t floors[] = { 0xC000, 0x8000, 0x4000, 0x2000, 0x1000, 0x0800, 0x0400 };
+    static unsigned next_floor = 0;
     uint16_t sp = g_cpu ? g_cpu->sp : 0xFFFE;
-    if (sp < 0xF000) armed = 1;
-    if (!fired && armed && sp > last && (uint16_t)(sp - last) > 0x100 && sp > 0xFD00) {
-        fired = 1;
-        fprintf(stderr, "[SP-RISE] at %s: sp %04X -> %04X (+%04X). recent:",
-                nm, last, sp, (uint16_t)(sp - last));
-        for (int i = 10; i > 0; i--) {
-            const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
-            if (r) fprintf(stderr, " %s", r + 3);
-        }
-        fprintf(stderr, "\n");
-    }
-    last = sp;
+    if (next_floor >= sizeof floors / sizeof floors[0]) return;
+    if (sp > floors[next_floor]) return;
+    fprintf(stderr, "\n[SP-LOW] guest sp=%04X (below %04X) at %s\n", sp, floors[next_floor], nm);
+    next_floor++;
+    dump_guest_stack(g_cpu, 48);
 }
 #endif
+
+/*
+ * Guest call stack. Win16 far functions open with `inc bp; push bp; mov bp,sp`
+ * and close with `pop bp; dec bp; retf`, so the saved bp at [bp] carries a
+ * mark bit: odd means THIS frame belongs to a far function and its return
+ * address at [bp+2] is 4 bytes (offset then segment); even means near, 2 bytes,
+ * returning into the same segment as the frame we came from.
+ *
+ * Far more useful than the flat call ring, which only shows what ran recently,
+ * not who is waiting on what.
+ */
+void dump_guest_stack(CPU *cpu, int max)
+{
+    /* The guest stack can't be walked: the lifter pushes a literal 0 as the
+     * far-return offset (control actually returns through the host C stack), so
+     * every return address on it is fake. The HOST stack is the guest call
+     * stack — one C frame per lifted function still executing. Print raw
+     * addresses as file VAs; `addr2line -f -e build/catz.exe` names them.
+     * ponytail: no dbghelp/PDB plumbing to symbolize in-process, the two-step
+     * is fine for a debug dump. Note -O2 tail-merges the innermost chain, so
+     * the deepest few lifted labels appear as their sibling-call parent. */
+    (void)cpu;
+    void *frames[128];
+    USHORT n = CaptureStackBackTrace(0, (ULONG)(max > 128 ? 128 : max), frames, NULL);
+    fprintf(stderr, "--- guest call stack (%u host frames, innermost first) ---\n"
+                    "    symbolize: addr2line -f -e build/catz.exe \\\n     ", n);
+    for (USHORT i = 0; i < n; i++)
+        fprintf(stderr, " %p", frames[i]);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+}
 
 /* Runaway recursion in lifted code kills the host with STATUS_STACK_OVERFLOW and
  * no clue where. Dump the tail of the call ring in order — a recursion shows up
@@ -79,9 +107,20 @@ static LONG CALLBACK stack_overflow_veh(EXCEPTION_POINTERS *ep)
         const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
         if (nm) fprintf(stderr, "  %s\n", nm);
     }
+    if (g_cpu) dump_guest_stack(g_cpu, 40);
     fflush(stderr);
     _exit(98);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1)
+{
+    static int fired = 0;
+    if (fired++ >= 8) return;
+    fprintf(stderr, "[BP-BROKE] %s returned bp %04X->%04X  sp %04X->%04X\n",
+            callee, bp0, bp1, sp0, sp1);
+    if (fired == 1) dump_guest_stack(g_cpu, 40);
+    fflush(stderr);
 }
 
 void dump_fn_ring(int n)
