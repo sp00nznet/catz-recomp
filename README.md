@@ -75,7 +75,27 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status: Multi-Module Host+Engine Runs Through Window Creation ✅
+## Status (2026-07): stops at a Borland `abort()` during engine init
+
+Current run: image load → CATZDLL `LibMain` → CATZ.WAD `WinMain` → real Win32
+window + WndProc bridge → CATZREZX loaded (327 resources) → **"Abnormal program
+termination"** (Borland `abort()`, `INT21/4C` code 3) somewhere in engine/pet
+construction. Reproduce with `build/catz.exe`; the abort path dumps the last
+120 lifted functions.
+
+Build notes that are easy to lose: **`-O2` is required for correctness** (the
+lifter turns intra-segment jumps into tail calls — at `-O0` guest loops become
+host recursion and blow the stack), and `CATZ_DATA_DIR` must point at a real
+game install (`../catzng/catz`, the tree containing `PTZFILES`). Compiler is
+MSYS2 mingw64 gcc; `PATH` must include `C:/msys64/mingw64/bin`.
+
+Next: find what calls `abort()`. The flat call ring isn't enough — walk the
+guest stack (bp chain in the flat image) at the abort so the caller shows up
+by name.
+
+<details><summary>Earlier milestone: multi-module host+engine through window creation</summary>
+
+### Multi-Module Host+Engine Runs Through Window Creation ✅
 
 **Both modules are recompiled and cross-linked.** `CATZ.WAD` (the host EXE) and
 `CATZDLL.DLL` (the engine) build into one program that runs the **full Win16
@@ -108,6 +128,8 @@ Correctness fixes that got the engine this far:
    to always read empty → infinite 4 KB arena allocation → `_setargv` OOM. Fixed
    by reading both words into temps before writing. (The "huge-pointer model"
    was a misdiagnosis.)
+
+</details>
 
 ### Module architecture (mapped)
 
