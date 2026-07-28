@@ -382,6 +382,14 @@ void USER_MESSAGEBEEP(CPU *cpu) { cpu->ax = 1; ret(cpu, 2); }
 void KERNEL_OUTPUTDEBUGSTRING(CPU *cpu) {
     uint16_t off = a16(cpu, 0), seg = a16(cpu, 2);
     char s[256]; read_asciiz(cpu, seg, off, s, sizeof(s));
+    /* The engine's own log is the best window into what it thinks it is doing,
+     * and right now the lifted Borland formatter mangles it — so dump the bytes
+     * around the buffer too, which is what showed the output is a TAIL of the
+     * intended string ("alled" for " called"). */
+    IMPL_LOG("[OutputDebugString] %04X:%04X [", seg, off);
+    for (int i = -6; i < 18; i++)
+        IMPL_LOG("%c%02X", i == 0 ? '|' : ' ', mem_read8(cpu, seg, (uint16_t)(off + i)));
+    IMPL_LOG(" ]");
     fprintf(stderr, "[OutputDebugString] %s", s);
     cpu->ax = 0; ret(cpu, 4);
 }
