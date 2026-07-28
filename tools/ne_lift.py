@@ -229,6 +229,45 @@ class NELifter(Lifter):
                                        f'{orig} -- offset of {mod}.{r.ordinal}')
                             return
 
+        # --- String ops with a SEGMENT OVERRIDE on the source ---
+        # The shared lifter hardcodes cpu->ds for the source of lods/movs/cmps
+        # and drops any override prefix. Borland's _vprinter scans its format
+        # string with `es: lodsb` (the format is loaded into ES:SI by
+        # `les si,[bp+6]`), so with the override dropped every format character
+        # is read from the wrong segment and the whole printf family produces
+        # garbage. Destination-side (stos/scas, and movs' ES:DI) is always ES
+        # and cannot be overridden, so only the source needs fixing.
+        # Only intercept when an override is actually present — without one the
+        # base lifter is already correct, including its rep handling.
+        _STR_SRC = {'lodsb': 1, 'lodsw': 2, 'movsb': 1, 'movsw': 2,
+                    'cmpsb': 1, 'cmpsw': 2}
+        if m in _STR_SRC and getattr(inst, 'seg_override', ''):
+            ov = inst.seg_override
+            src = (f'SEG_{self.seg.index}' if ov == 'cs' else f'cpu->{ov}')
+            w = _STR_SRC[m]
+            step = f'cpu->si += df(cpu) ? -{w} : {w};'
+            if m.startswith('lods'):
+                reg = 'al' if w == 1 else 'ax'
+                body = f'cpu->{reg} = mem_read{w * 8}(cpu, {src}, cpu->si); {step}'
+            elif m.startswith('movs'):
+                body = (f'mem_write{w * 8}(cpu, cpu->es, cpu->di, '
+                        f'mem_read{w * 8}(cpu, {src}, cpu->si)); {step} '
+                        f'cpu->di += df(cpu) ? -{w} : {w};')
+            else:  # cmps
+                body = (f'flags_cmp{w * 8}(cpu, mem_read{w * 8}(cpu, {src}, cpu->si), '
+                        f'mem_read{w * 8}(cpu, cpu->es, cpu->di)); {step} '
+                        f'cpu->di += df(cpu) ? -{w} : {w};')
+            if inst.prefix == 'rep':
+                self._emit(f'while (cpu->cx != 0) {{ cpu->cx--; {body} }}',
+                           f'rep {orig}')
+            elif inst.prefix in ('repz', 'repnz'):
+                keep = 'zf(cpu)' if inst.prefix == 'repz' else '!zf(cpu)'
+                self._emit(f'while (cpu->cx != 0) {{ cpu->cx--; {body} '
+                           f'if (!({keep})) break; }}', f'{inst.prefix} {orig}')
+            else:
+                self._emit(body, orig)
+            return
+
         # --- BCD adjust instructions ---
         # The shared lifter emits these as "/* BCD: ... - stub */", i.e. drops
         # them. That is not cosmetic here: AAM is *the* decimal digit-extraction
