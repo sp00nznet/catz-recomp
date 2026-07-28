@@ -484,8 +484,8 @@ void CTL3DV2_CTL3DAUTOSUBCLASS(CPU *cpu)   { cpu->ax = 1; ret(cpu, 2); }
 #endif
 static FILE *g_dosfiles[64];          /* DOS handle h (>=5) -> host FILE* (slot h-5) */
 
-static int dos_map_path(CPU *cpu, char *host, int hostsz) {
-    char g[192]; read_asciiz(cpu, cpu->ds, cpu->dx, g, sizeof g);
+/* Map a guest DOS path to a host path under CATZ_DATA_DIR. */
+static int map_guest_path(const char *g, char *host, int hostsz) {
     if (!g[0]) return 0;
     char low[192]; int i = 0;
     for (; g[i]; i++) low[i] = (g[i] >= 'A' && g[i] <= 'Z') ? (char)(g[i] + 32) : g[i];
@@ -505,6 +505,11 @@ static int dos_map_path(CPU *cpu, char *host, int hostsz) {
     }
     for (char *q = host; *q; q++) if (*q == '\\') *q = '/';
     return 1;
+}
+
+static int dos_map_path(CPU *cpu, char *host, int hostsz) {
+    char g[192]; read_asciiz(cpu, cpu->ds, cpu->dx, g, sizeof g);
+    return map_guest_path(g, host, hostsz);
 }
 
 void dos_int21(CPU *cpu) {
@@ -750,6 +755,121 @@ void USER__WSPRINTF(CPU *cpu) {
     out[n] = 0;
 
     for (int i = 0; i <= n; i++) mem_write8(cpu, oseg, (uint16_t)(ooff + i), (uint8_t)out[i]);
+    IMPL_LOG("[wsprintf] fmt=%s| -> %s|\n", fmt, out);
     cpu->ax = (uint16_t)n;
     ret(cpu, 0);                            /* cdecl: caller cleans the args */
+}
+
+/* ===== KERNEL: Win16 file API =====
+ * The engine loads its data files (pet .lnz, sound tables, sprite data) through
+ * OpenFile/_lopen/_lread rather than INT 21h, and these were stubs returning 0 —
+ * so every load silently produced nothing. Same host mapping as the DOS path. */
+#define MAX_LFILE 64
+static FILE *g_lfiles[MAX_LFILE];           /* HFILE h -> host FILE* (slot h-1) */
+
+static FILE *lfile(uint16_t h) {
+    return (h >= 1 && h <= MAX_LFILE) ? g_lfiles[h - 1] : NULL;
+}
+
+static uint16_t lopen_host(const char *guest, const char *mode) {
+    char host[320];
+    if (!map_guest_path(guest, host, sizeof host)) return 0xFFFF;   /* HFILE_ERROR */
+    FILE *f = fopen(host, mode);
+    if (!f) { fprintf(stderr, "[file] open FAILED %s -> %s\n", guest, host); return 0xFFFF; }
+    for (int i = 0; i < MAX_LFILE; i++)
+        if (!g_lfiles[i]) {
+            g_lfiles[i] = f;
+            fprintf(stderr, "[file] open %s -> handle %d\n", guest, i + 1);
+            return (uint16_t)(i + 1);
+        }
+    fclose(f);
+    return 0xFFFF;
+}
+
+void KERNEL_OPENFILE(CPU *cpu) {
+    /* OpenFile(lpFileName, lpReOpenBuff, wStyle); OF_EXIST(0x4000) only probes. */
+    uint16_t style = a16(cpu, 0);
+    uint16_t boff  = a16(cpu, 2), bseg = a16(cpu, 4);
+    uint16_t noff  = a16(cpu, 6), nseg = a16(cpu, 8);
+    char name[192]; read_asciiz(cpu, nseg, noff, name, sizeof name);
+
+    char host[320];
+    int mapped = map_guest_path(name, host, sizeof host);
+    if (style & 0x4000) {                    /* OF_EXIST: report, don't keep open */
+        FILE *f = mapped ? fopen(host, "rb") : NULL;
+        if (f) fclose(f);
+        cpu->ax = f ? 1 : 0xFFFF;
+    } else {
+        cpu->ax = lopen_host(name, (style & 3) ? "r+b" : "rb");
+    }
+    /* OFSTRUCT: cBytes, fFixedDisk, nErrCode, reserved[4], szPathName[128] */
+    if (bseg) {
+        mem_write8(cpu, bseg, boff, (uint8_t)sizeof(name));
+        mem_write16(cpu, bseg, (uint16_t)(boff + 2), (uint16_t)(cpu->ax == 0xFFFF ? 2 : 0));
+        int i = 0;
+        for (; name[i] && i < 127; i++) mem_write8(cpu, bseg, (uint16_t)(boff + 8 + i), (uint8_t)name[i]);
+        mem_write8(cpu, bseg, (uint16_t)(boff + 8 + i), 0);
+    }
+    ret(cpu, 10);
+}
+
+void KERNEL__LOPEN(CPU *cpu) {              /* _lopen(lpPathName, iReadWrite) */
+    uint16_t rw   = a16(cpu, 0);
+    uint16_t noff = a16(cpu, 2), nseg = a16(cpu, 4);
+    char name[192]; read_asciiz(cpu, nseg, noff, name, sizeof name);
+    cpu->ax = lopen_host(name, (rw & 3) ? "r+b" : "rb");
+    ret(cpu, 6);
+}
+
+void KERNEL__LCREAT(CPU *cpu) {             /* _lcreat(lpPathName, iAttribute) */
+    uint16_t noff = a16(cpu, 2), nseg = a16(cpu, 4);
+    char name[192]; read_asciiz(cpu, nseg, noff, name, sizeof name);
+    cpu->ax = lopen_host(name, "w+b");
+    ret(cpu, 6);
+}
+
+void KERNEL__LREAD(CPU *cpu) {              /* _lread(hFile, lpBuffer, wBytes) */
+    uint16_t n    = a16(cpu, 0);
+    uint16_t boff = a16(cpu, 2), bseg = a16(cpu, 4);
+    uint16_t h    = a16(cpu, 6);
+    FILE *f = lfile(h);
+    uint16_t got = 0;
+    if (f) {
+        for (; got < n; got++) {
+            int c = fgetc(f);
+            if (c < 0) break;
+            mem_write8(cpu, bseg, (uint16_t)(boff + got), (uint8_t)c);
+        }
+        cpu->ax = got;
+    } else {
+        cpu->ax = 0xFFFF;
+    }
+    ret(cpu, 8);
+}
+
+void KERNEL__LWRITE(CPU *cpu) {             /* read-only bring-up: report success */
+    uint16_t n = a16(cpu, 0);
+    cpu->ax = n;
+    ret(cpu, 8);
+}
+
+void KERNEL__LCLOSE(CPU *cpu) {             /* _lclose(hFile) */
+    uint16_t h = a16(cpu, 0);
+    FILE *f = lfile(h);
+    if (f) { fclose(f); g_lfiles[h - 1] = NULL; }
+    cpu->ax = f ? 0 : 0xFFFF;
+    ret(cpu, 2);
+}
+
+void KERNEL__LLSEEK(CPU *cpu) {             /* _llseek(hFile, lOffset, iOrigin) */
+    uint16_t origin = a16(cpu, 0);
+    int32_t  off    = (int32_t)a32(cpu, 2);
+    uint16_t h      = a16(cpu, 6);
+    FILE *f = lfile(h);
+    long pos = -1;
+    if (f && fseek(f, off, origin == 1 ? SEEK_CUR : origin == 2 ? SEEK_END : SEEK_SET) == 0)
+        pos = ftell(f);
+    cpu->ax = (uint16_t)(pos < 0 ? 0xFFFF : (uint32_t)pos);
+    cpu->dx = (uint16_t)(pos < 0 ? 0xFFFF : ((uint32_t)pos >> 16));
+    ret(cpu, 8);
 }

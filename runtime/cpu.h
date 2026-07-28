@@ -128,6 +128,11 @@ typedef struct CPU {
 /* Print the guest call stack. Defined in main.c. */
 void dump_guest_stack(CPU *cpu, int max);
 
+/* Reached a branch whose target the decoder never resolved, so it has no
+ * lifted code (see ne_lift). Reports and exits. Defined in main.c — NOT in
+ * runtime_api.h, which gen_win16_stubs.py regenerates. */
+void catz_unreachable(const char *seg, unsigned off);
+
 /* Reported by the bpguard instrumentation when a callee returns with bp
  * changed (bp is callee-saved in every Borland Win16 frame). */
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
