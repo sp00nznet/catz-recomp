@@ -136,6 +136,7 @@ void catz_unreachable(const char *seg, unsigned off);
 /* Reported by the bpguard instrumentation when a callee returns with bp
  * changed (bp is callee-saved in every Borland Win16 frame). */
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
+void catz_ds_broke(const char *callee, uint16_t ds0, uint16_t ds1);
 
 /* ── Memory access ─────────────────────────────────────────── */
 

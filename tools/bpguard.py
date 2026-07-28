@@ -22,8 +22,9 @@ def apply():
             m = CALL.match(line)
             if m:
                 ind, callee, tail = m.groups()
-                out.append(f'{ind}{{ uint16_t _gb = cpu->bp, _gs = cpu->sp; {callee}(cpu);'
-                           f' if (cpu->bp != _gb) catz_bp_broke("{callee}", _gb, cpu->bp, _gs, cpu->sp); }}{tail}')
+                out.append(f'{ind}{{ uint16_t _gb = cpu->bp, _gs = cpu->sp, _gd = cpu->ds; {callee}(cpu);'
+                           f' if (cpu->bp != _gb) catz_bp_broke("{callee}", _gb, cpu->bp, _gs, cpu->sp);'
+                           f' if (cpu->ds != _gd) catz_ds_broke("{callee}", _gd, cpu->ds); }}{tail}')
                 n += 1
             else:
                 out.append(line)

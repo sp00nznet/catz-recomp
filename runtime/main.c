@@ -55,11 +55,27 @@ void catz_sp_check(const char *nm)
     static unsigned next_floor = 0;
     uint16_t sp = g_cpu ? g_cpu->sp : 0xFFFE;
 
-    /* Tried and removed: a "ds == 0 on function entry" detector. DS is
-     * legitimately null for a moment after `lds` loads a NULL far pointer —
-     * seg001_5A45 is exactly that branch and reloads DS as its first
-     * instruction — so entry-time DS tells you nothing. The zero selector seen
-     * at the seg063 `push ds` sites needs a check at the PUSH, not at entry. */
+    /* A null DS is legitimate for a moment after `lds` loads a NULL far pointer
+     * (seg001_5A45 is that branch and reloads DS immediately), so entry-time
+     * ds==0 on its own means nothing. What is NOT legitimate is DS *staying*
+     * null across many calls — that is a lost DGROUP, and any far pointer built
+     * as `push ds` from then on carries a null selector. Discriminate on run
+     * length and report where the run began. */
+    if (g_cpu) {
+        static unsigned run = 0;
+        static const char *run_start = "?";
+        static int reported = 0;
+        if (g_cpu->ds == 0) {
+            if (run++ == 0) run_start = nm;
+            if (run == 200 && !reported++) {
+                fprintf(stderr, "\n[DS-LOST] ds has been 0 for %u calls; run began at %s,"
+                                " now in %s\n", run, run_start, nm);
+                dump_guest_stack(g_cpu, 30);
+            }
+        } else {
+            run = 0;
+        }
+    }
     if (next_floor >= sizeof floors / sizeof floors[0]) return;
     if (sp > floors[next_floor]) return;
     fprintf(stderr, "\n[SP-LOW] guest sp=%04X (below %04X) at %s\n", sp, floors[next_floor], nm);
@@ -285,3 +301,15 @@ static void catz_watch_init(void)
     }
 }
 #endif
+
+/* DS is callee-saved in Win16 (a function that reloads DGROUP restores the
+ * caller's DS with `pop ds`). A callee that returns with DS changed leaves the
+ * caller building far pointers from a wrong — often null — selector. */
+void catz_ds_broke(const char *callee, uint16_t ds0, uint16_t ds1)
+{
+    static int fired = 0;
+    if (fired++ >= 6) return;
+    fprintf(stderr, "[DS-BROKE] %s returned ds %04X->%04X\n", callee, ds0, ds1);
+    if (fired == 1) dump_guest_stack(g_cpu, 30);
+    fflush(stderr);
+}
