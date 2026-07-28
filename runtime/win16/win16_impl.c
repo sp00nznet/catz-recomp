@@ -881,3 +881,36 @@ void KERNEL__LLSEEK(CPU *cpu) {             /* _llseek(hFile, lOffset, iOrigin) 
     cpu->dx = (uint16_t)(pos < 0 ? 0xFFFF : ((uint32_t)pos >> 16));
     ret(cpu, 8);
 }
+
+/* ===== TOOLHELP: GlobalEntryHandle =====
+ * The engine validates every heap block it owns by asking TOOLHELP to describe
+ * the handle; the stub returned FALSE, so the engine concluded its own heap was
+ * corrupt and logged "###ERROR: You've stomped on memory, dude" for essentially
+ * every allocation. Describe the block for real: a handle IS a selector here, so
+ * everything the caller needs is already in the allocator's tables. */
+void TOOLHELP_GLOBALENTRYHANDLE(CPU *cpu) {
+    /* GlobalEntryHandle(lpGlobalEntry, hItem) */
+    uint16_t h    = a16(cpu, 0);
+    uint16_t eoff = a16(cpu, 2), eseg = a16(cpu, 4);
+    uint32_t size = h ? g_sel_size[h] : 0;
+
+    if (!h || !size) { cpu->ax = 0; ret(cpu, 6); return; }   /* not a live block */
+
+    /* GLOBALENTRY (36 bytes): dwSize@0, dwAddress@4, dwBlockSize@8, hBlock@12,
+     * wcLock@14, wcPageLock@16, wFlags@18, wHeapPresent@20, hOwner@22,
+     * wType@24, wData@26, dwNext@28, dwNextAlt@32. */
+    #define GE_W(o, v) mem_write16(cpu, eseg, (uint16_t)(eoff + (o)), (uint16_t)(v))
+    GE_W(0, 36);            GE_W(2, 0);
+    GE_W(4, 0);             GE_W(6, h);      /* dwAddress: this selector, offset 0 */
+    GE_W(8, size);          GE_W(10, size >> 16);
+    GE_W(12, h);            GE_W(14, 0);
+    GE_W(16, 0);            GE_W(18, 0);
+    GE_W(20, 0);            GE_W(22, h);     /* hOwner == the block itself */
+    GE_W(24, 0);            GE_W(26, 0);
+    GE_W(28, 0);            GE_W(30, 0);
+    GE_W(32, 0);            GE_W(34, 0);
+    #undef GE_W
+
+    cpu->ax = 1;                            /* TRUE */
+    ret(cpu, 6);
+}

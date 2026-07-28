@@ -117,7 +117,6 @@ void SOSLIB03_SOSTIMERINITSYSTEM(CPU *cpu) { (void)cpu; WIN16_LOG("SOSTIMERINITS
 void SOSLIB03_SOSTIMERUNINITSYSTEM(CPU *cpu) { (void)cpu; WIN16_LOG("SOSTIMERUNINITSYSTEM"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SOSTIMERUNINITSYSTEM"); }
 
 /* ===== TOOLHELP ===== */
-void TOOLHELP_GLOBALENTRYHANDLE(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALENTRYHANDLE"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void TOOLHELP_TIMERCOUNT(CPU *cpu) { (void)cpu; WIN16_LOG("TIMERCOUNT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 
 /* ===== USER ===== */
