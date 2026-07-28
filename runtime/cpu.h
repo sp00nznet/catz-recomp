@@ -180,6 +180,7 @@ static inline uint8_t mem_read8(CPU *cpu, uint16_t seg, uint16_t off) {
  * across unrelated classes — but a watchpoint names the writer in one run. */
 #ifdef CATZ_WATCH_MEM
 extern uint16_t g_watch_seg, g_watch_off;
+extern int g_watch_armed;
 void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val);
 #define CATZ_WATCH_CHECK(s, o, v) \
     do { if ((s) == g_watch_seg && (o) == g_watch_off) catz_watch_hit((s), (o), (v)); } while (0)

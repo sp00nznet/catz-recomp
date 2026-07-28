@@ -283,9 +283,12 @@ void catz_unreachable(const char *seg, unsigned off)
 #ifdef CATZ_WATCH_MEM
 uint16_t g_watch_seg = 0xFFFF, g_watch_off = 0xFFFF;
 
+int g_watch_armed = 0;               /* gate: only report while a frame is live */
+
 void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val)
 {
     static int n = 0;
+    if (!g_watch_armed) return;
     if (n++ >= 12) return;
     fprintf(stderr, "\n[WATCH] write %04X:%04X = %04X\n", seg, off, val);
     dump_guest_stack(g_cpu, 24);
