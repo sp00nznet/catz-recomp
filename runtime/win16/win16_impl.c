@@ -692,7 +692,8 @@ void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) {
 
     char host[320]; ini_resolve(file, app, key, host, sizeof host);
     cpu->ax = (uint16_t)GetPrivateProfileIntA(app, key, ndef, host);
-    fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s] %s) -> %u\n", file, app, key, cpu->ax);
+    fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s]@%04X:%04X %s) -> %u\n",
+            file, app, apseg, apoff, key, cpu->ax);
     ret(cpu, 14);
 }
 
