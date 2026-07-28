@@ -230,7 +230,9 @@ void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
  * We give it a real guest-memory pixel buffer; presentation to the real window
  * is a no-op for now (gets the engine into its render loop). */
 #define WING_DC_HANDLE 0x0DC0
-static struct { uint16_t hbm, sel; int w, h, bpp; } g_wing[8];
+static struct { uint16_t hbm, sel; int w, h, bpp, topdown; uint8_t pal[256 * 4]; }
+    g_wing[8];
+static int g_wing_cur = -1;          /* index selected into the WinG DC */
 static int g_nwing;
 
 void WING_WINGCREATEDC(CPU *cpu) {          /* WinGCreateDC(void) -> HDC */
@@ -266,15 +268,69 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
     /* write the DIB pixel pointer (sel:0000) into *ppBits */
     if (ppseg || ppoff) { mem_write16(cpu, ppseg, ppoff, 0); mem_write16(cpu, ppseg, (uint16_t)(ppoff + 2), sel); }
     uint16_t hbm = (uint16_t)(0x0B00 + (++g_nwing));
-    if (g_nwing <= (int)(sizeof g_wing / sizeof g_wing[0]))
-        { g_wing[g_nwing-1].hbm = hbm; g_wing[g_nwing-1].sel = sel; g_wing[g_nwing-1].w = w; g_wing[g_nwing-1].h = h; g_wing[g_nwing-1].bpp = bpp; }
+    if (g_nwing <= (int)(sizeof g_wing / sizeof g_wing[0])) {
+        int i = g_nwing - 1;
+        g_wing[i].hbm = hbm; g_wing[i].sel = sel;
+        g_wing[i].w = w; g_wing[i].h = h; g_wing[i].bpp = bpp;
+        g_wing[i].topdown = ((int)mem_read32(cpu, hseg, hoff + 8) < 0);
+        /* The colour table follows the 40-byte header in the caller's
+         * BITMAPINFO — WinG has no SetDIBColorTable import, so this is the only
+         * place the palette is handed to us. Without it the blit is grey mush. */
+        if (bpp <= 8) {
+            unsigned n = 1u << bpp;
+            for (unsigned c = 0; c < n && c < 256; c++)
+                for (int b = 0; b < 4; b++)
+                    g_wing[i].pal[c * 4 + b] =
+                        mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4 + b));
+        }
+        g_wing_cur = i;                 /* newest bitmap is the active surface */
+    }
     IMPL_LOG("[win16] WinGCreateBitmap %dx%dx%d -> hbm=%04X bits=%04X:0000 (%u B)\n", w, h, bpp, hbm, sel, size);
     cpu->ax = hbm;
     ret(cpu, 10);
 }
 
-void WING_WINGSTRETCHBLT(CPU *cpu) {        /* WinGStretchBlt(...) -> BOOL (present; no-op) */
-    cpu->ax = 1;
+/* WinGStretchBlt(hdcDest, xDest, yDest, wDest, hDest,
+ *                hdcSrc,  xSrc,  ySrc,  wSrc,  hSrc) -> BOOL
+ * The source is the WinG DC with a WinG bitmap selected into it; that bitmap's
+ * pixels live in guest memory at sel:0000, so the "blit" is StretchDIBits from
+ * guest memory straight onto the real destination DC. This is the engine's
+ * only path to the screen — it was a no-op returning TRUE, which is why the
+ * window stayed blank even when the engine was drawing. */
+void WING_WINGSTRETCHBLT(CPU *cpu) {
+    int hSrc  = (int16_t)a16(cpu, 0),  wSrc  = (int16_t)a16(cpu, 2);
+    int ySrc  = (int16_t)a16(cpu, 4),  xSrc  = (int16_t)a16(cpu, 6);
+    int hDest = (int16_t)a16(cpu, 10), wDest = (int16_t)a16(cpu, 12);
+    int yDest = (int16_t)a16(cpu, 14), xDest = (int16_t)a16(cpu, 16);
+    uint16_t hdcDest = a16(cpu, 18);
+
+    extern HDC catz_real_hdc(uint16_t);
+    HDC dst = catz_real_hdc(hdcDest);
+    if (!dst || g_wing_cur < 0) { cpu->ax = 0; ret(cpu, 20); return; }
+
+    int i = g_wing_cur;
+    /* BITMAPINFOHEADER + 256-entry palette, laid out as GDI32 wants it. */
+    unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
+    memset(bi, 0, sizeof bi);
+    BITMAPINFOHEADER *h = (BITMAPINFOHEADER *)bi;
+    h->biSize   = sizeof(BITMAPINFOHEADER);
+    h->biWidth  = g_wing[i].w;
+    /* Negative height = top-down, which is what WinG surfaces are. */
+    h->biHeight = g_wing[i].topdown ? -g_wing[i].h : g_wing[i].h;
+    h->biPlanes = 1;
+    h->biBitCount = (WORD)g_wing[i].bpp;
+    h->biCompression = BI_RGB;
+    if (g_wing[i].bpp <= 8)
+        memcpy(bi + sizeof(BITMAPINFOHEADER), g_wing[i].pal, 256 * 4);
+
+    const void *bits = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+    SetStretchBltMode(dst, COLORONCOLOR);
+    int r = StretchDIBits(dst, xDest, yDest, wDest, hDest,
+                          xSrc, ySrc, wSrc, hSrc,
+                          bits, (const BITMAPINFO *)bi, DIB_RGB_COLORS, SRCCOPY);
+    IMPL_LOG("[wing] StretchBlt %dx%d@%d,%d <- %dx%d@%d,%d src=%04X -> %d\n",
+             wDest, hDest, xDest, yDest, wSrc, hSrc, xSrc, ySrc, g_wing[i].sel, r);
+    cpu->ax = (uint16_t)(r != GDI_ERROR);
     ret(cpu, 20);
 }
 

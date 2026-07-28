@@ -294,3 +294,7 @@ void USER_LOADBITMAP(CPU *cpu) {
             bih->biBitCount, cpu->ax);
     b_ret(cpu, 6);
 }
+
+/* Expose the guest->real HDC mapping to the WinG blit in win16_impl.c. */
+HDC catz_real_hdc(uint16_t guest_hdc) { return get_hdc(guest_hdc); }
+HWND catz_real_hwnd(uint16_t guest_hwnd) { return get_hwnd(guest_hwnd); }
