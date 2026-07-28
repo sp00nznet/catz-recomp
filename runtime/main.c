@@ -54,6 +54,12 @@ void catz_sp_check(const char *nm)
     static const uint16_t floors[] = { 0xC000, 0x8000, 0x4000, 0x2000, 0x1000, 0x0800, 0x0400 };
     static unsigned next_floor = 0;
     uint16_t sp = g_cpu ? g_cpu->sp : 0xFFFE;
+
+    /* Tried and removed: a "ds == 0 on function entry" detector. DS is
+     * legitimately null for a moment after `lds` loads a NULL far pointer —
+     * seg001_5A45 is exactly that branch and reloads DS as its first
+     * instruction — so entry-time DS tells you nothing. The zero selector seen
+     * at the seg063 `push ds` sites needs a check at the PUSH, not at entry. */
     if (next_floor >= sizeof floors / sizeof floors[0]) return;
     if (sp > floors[next_floor]) return;
     fprintf(stderr, "\n[SP-LOW] guest sp=%04X (below %04X) at %s\n", sp, floors[next_floor], nm);
