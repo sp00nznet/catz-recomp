@@ -44,6 +44,10 @@ unsigned g_fn_ring_pos = 0;
  * code (the registered window procedure) on delivered messages. */
 CPU *g_cpu = NULL;
 
+/* Where the current run of ds==0 began — for the null-selector hunt. */
+const char *g_ds_zero_from = "?";
+unsigned g_ds_run = 0;
+
 #ifdef CATZ_WATCH_SP
 /* See cpu.h: the guest stack is one 64 KB segment and it drains. Report the
  * call chain each time sp crosses a new low-water mark — if the chain repeats
@@ -62,18 +66,10 @@ void catz_sp_check(const char *nm)
      * as `push ds` from then on carries a null selector. Discriminate on run
      * length and report where the run began. */
     if (g_cpu) {
-        static unsigned run = 0;
-        static const char *run_start = "?";
-        static int reported = 0;
         if (g_cpu->ds == 0) {
-            if (run++ == 0) run_start = nm;
-            if (run == 200 && !reported++) {
-                fprintf(stderr, "\n[DS-LOST] ds has been 0 for %u calls; run began at %s,"
-                                " now in %s\n", run, run_start, nm);
-                dump_guest_stack(g_cpu, 30);
-            }
+            if (g_ds_run++ == 0) g_ds_zero_from = nm;   /* first call of this run */
         } else {
-            run = 0;
+            g_ds_run = 0;
         }
     }
     if (next_floor >= sizeof floors / sizeof floors[0]) return;

@@ -138,6 +138,10 @@ void catz_unreachable(const char *seg, unsigned off);
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
 void catz_ds_broke(const char *callee, uint16_t ds0, uint16_t ds1);
 
+/* Where the current run of ds==0 began (main.c); always available. */
+extern const char *g_ds_zero_from;
+extern unsigned g_ds_run;
+
 /* ── Memory access ─────────────────────────────────────────── */
 
 /*
