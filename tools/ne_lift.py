@@ -229,6 +229,24 @@ class NELifter(Lifter):
                                        f'{orig} -- offset of {mod}.{r.ordinal}')
                             return
 
+        # --- Register-indirect near jmp/call (`jmp cx`) ---
+        # The shared lifter drops these entirely — it emits nothing, so the C
+        # function falls off its end and RETURNS, skipping everything the guest
+        # still had to do. In seg001_2AFC that is Borland's "return to the call
+        # site plus 3" trick inside _scanner (`pop cx; add cx,3; jmp cx`), and
+        # dropping it made _scanner return straight after its prologue with its
+        # frame still allocated — which corrupted bp, then DS, then every far
+        # pointer built as `push ds`. Route it through the dispatcher like any
+        # other computed near target.
+        if m in ('jmp', 'call') and op1 and op1.type == OpType.REG16:
+            reg = REG16_NAMES[op1.reg]
+            idx = self.seg.index
+            if m == 'jmp':
+                self._emit(f'dispatch_near(cpu, {idx}, cpu->{reg}); return;', orig)
+            else:
+                self._emit(f'{{ push16(cpu, 0); dispatch_near(cpu, {idx}, cpu->{reg}); }}', orig)
+            return
+
         # --- String ops with a SEGMENT OVERRIDE on the source ---
         # The shared lifter hardcodes cpu->ds for the source of lods/movs/cmps
         # and drops any override prefix. Borland's _vprinter scans its format

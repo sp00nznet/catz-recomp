@@ -141,7 +141,15 @@ void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0,
     if (fired++ >= 8) return;
     fprintf(stderr, "[BP-BROKE] %s returned bp %04X->%04X  sp %04X->%04X\n",
             callee, bp0, bp1, sp0, sp1);
-    if (fired == 1) dump_guest_stack(g_cpu, 40);
+    /* The ring shows which labels actually ran inside the callee, i.e. which
+     * edge it left through — for an early return that is far more informative
+     * than the call stack, which only says who was waiting. */
+    fprintf(stderr, "  last 24 labels:");
+    for (int i = 24; i > 0; i--) {
+        const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+        if (r) fprintf(stderr, " %s", r + 3);
+    }
+    fprintf(stderr, "\n");
     fflush(stderr);
 }
 
