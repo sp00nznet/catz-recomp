@@ -75,23 +75,69 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status (2026-07): stops at a Borland `abort()` during engine init
+## Status (2026-08): loads config + pet, still aborts before the first frame
 
 Current run: image load → CATZDLL `LibMain` → CATZ.WAD `WinMain` → real Win32
-window + WndProc bridge → CATZREZX loaded (327 resources) → **"Abnormal program
-termination"** (Borland `abort()`, `INT21/4C` code 3) somewhere in engine/pet
-construction. Reproduce with `build/catz.exe`; the abort path dumps the last
-120 lifted functions.
+window + WndProc bridge → CATZREZX (327 resources) → reads its whole
+configuration (`LASTCAT.INI → catz0.cat → Apersian.lnz`) → loads the playpen
+bitmap → **"Abnormal program termination"** (Borland `abort()`, `INT21/4C`
+code 3) during pet construction. Reproduce with `build/catz.exe`.
 
-Build notes that are easy to lose: **`-O2` is required for correctness** (the
-lifter turns intra-segment jumps into tail calls — at `-O0` guest loops become
-host recursion and blow the stack), and `CATZ_DATA_DIR` must point at a real
-game install (`../catzng/catz`, the tree containing `PTZFILES`). Compiler is
-MSYS2 mingw64 gcc; `PATH` must include `C:/msys64/mingw64/bin`.
+**Not yet rendering and not yet pumping messages.** `WinGStretchBlt` is now a
+real `StretchDIBits` from the WinG surface, but it has never executed — init
+dies first.
 
-Next: find what calls `abort()`. The flat call ring isn't enough — walk the
-guest stack (bp chain in the flat image) at the abort so the caller shows up
-by name.
+The abort is an uncaught C++ exception: an asset open fails because the engine
+composes a filename whose last component is empty, and the EH walk finds no
+handler. Where the empty name comes from is the open question. It is **not**
+the config layer — proven by experiment (see the "Negative result" commit):
+substituting a correct section pointer fixes the config reads and does not move
+the abort at all. Restart from `seg016_1822`'s loop.
+
+### Build notes that are easy to lose
+
+- **`-O2` is required for correctness.** The lifter turns intra-segment jumps
+  into tail calls; at `-O0` guest loops become host recursion and blow the
+  stack. Pinned in `CMakeLists.txt`.
+- `CATZ_DATA_DIR` must point at a real game install (`../catzng/catz`, the tree
+  containing `PTZFILES`).
+- Compiler is MSYS2 mingw64 gcc — `PATH` must include `C:/msys64/mingw64/bin`.
+- After any re-lift: `lift_dll.py`, `lift_wad.py`, **`patch_lifted.py`**, then
+  `gen_segments_h.py`, `gen_dispatch.py`, `gen_stubs.py`. Skipping
+  `patch_lifted.py` silently drops the EH cleanup-chain guards.
+
+### Diagnostics (all in-tree)
+
+| Tool | What it answers |
+|------|-----------------|
+| `dump_guest_stack()` | The guest call stack — the guest stack can't be walked (the lifter pushes a literal 0 as the far-return offset), so this captures the **host** stack and prints file VAs for `addr2line -f -e build/catz.exe`. ASLR is off so addresses paste straight in. |
+| `tools/bpguard.py` | Instruments all ~10k call sites and reports any callee that fails to preserve **BP or DS**. Found two systemic lifter bugs. |
+| `CATZ_WATCH=seg:off` + `-DCATZ_WATCH_MEM` | Guest write watchpoint with host backtrace; can be gated to one frame's lifetime (stack slots alias across frames, which produces false leads otherwise). |
+| `-DCATZ_WATCH_SP` | Guest stack low-water marks; also tracks where each run of `ds==0` begins. |
+| `-DCATZ_TRACE_WIN16` | Every shim call, including all file I/O and the engine's own `OutputDebugString` log. |
+| `-DELFISH_TRACE_RUNTIME` | Dispatcher misses — an unlifted indirect target shows up here. |
+
+### Lifter bugs fixed (these were silent)
+
+The two that mattered most were invisible until measured, and each corrupted
+the engine globally:
+
+- **Segment overrides dropped on `lods`/`movs`/`cmps`.** The decoder recorded
+  the prefix; the lifter hardcoded `cpu->ds`. Borland's `_vprinter` scans its
+  format string with `es: lodsb`, so *every formatted string in the engine* was
+  read from the wrong segment.
+- **Register-indirect `jmp`/`call` dropped entirely.** `jmp cx` became a bare
+  comment, so the C function fell off its end and returned. In `_scanner` that
+  is the `pop cx; add cx,3; jmp cx` idiom — the function returned straight
+  after its prologue with its frame still allocated, corrupting BP, then DS,
+  then every far pointer built as `push ds`.
+
+Also: jump-table targets and `OFFSET16` catch-handler relocations are now
+lifted (a missing catch handler meant *no* exception could ever be caught), the
+BCD adjust instructions (`aam`/`aad`/`daa`/`das`) are implemented rather than
+dropped, and `TOOLHELP.GlobalEntryHandle` is real — as a stub returning FALSE
+it made the engine report 59 phantom "you've stomped on memory" errors about a
+heap that was fine.
 
 <details><summary>Earlier milestone: multi-module host+engine through window creation</summary>
 
