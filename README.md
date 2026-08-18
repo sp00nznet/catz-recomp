@@ -75,24 +75,72 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status (2026-08): loads config + pet, still aborts before the first frame
+## Status (2026-08): constructs the pet from its real assets; dies in sqrt
 
 Current run: image load → CATZDLL `LibMain` → CATZ.WAD `WinMain` → real Win32
 window + WndProc bridge → CATZREZX (327 resources) → reads its whole
-configuration (`LASTCAT.INI → catz0.cat → Apersian.lnz`) → loads the playpen
-bitmap → **"Abnormal program termination"** (Borland `abort()`, `INT21/4C`
-code 3) during pet construction. Reproduce with `build/catz.exe`.
+configuration (`LASTCAT.INI → catz0.cat`) → loads the playpen bitmap → **loads
+the pet**: `Apersian.lnz`, `kpersian.lnz` (breed files), `cat.bhd` (animation
+index), `cat.scp` (behaviour script), `cat0.bdt` (animation frames) → then
+`MessageBox "sqrt: DOMAIN error"`. Reproduce with `build/catz.exe`.
 
 **Not yet rendering and not yet pumping messages.** `WinGStretchBlt` is now a
 real `StretchDIBits` from the WinG surface, but it has never executed — init
-dies first.
+still dies first, just much later.
 
-The abort is an uncaught C++ exception: an asset open fails because the engine
-composes a filename whose last component is empty, and the EH walk finds no
-handler. Where the empty name comes from is the open question. It is **not**
-the config layer — proven by experiment (see the "Negative result" commit):
-substituting a correct section pointer fixes the config reads and does not move
-the abort at all. Restart from `seg016_1822`'s loop.
+Next: the `sqrt` domain error. It is a first-class FPU/geometry bug, unrelated
+to everything above — a negative operand reaching `sqrt` during skeleton or
+physics setup. Candidates in order: an x87 op still lifted approximately
+(`shld`/`shrd`/`rcl`/`rcr`/`sahf` are decoded but TODO), a wrongly-read `.bdt`
+frame value, or a control-word/rounding difference. Start by trapping the
+domain error at the shim and dumping the operand and the guest stack.
+
+<details><summary>Resolved: the "Abnormal program termination" abort (2026-08)</summary>
+
+The abort had one root cause, three lifter defects deep. The chain, from the
+bottom up:
+
+1. **The lifter pushed a literal `0` as every call's return address.** Free
+   until guest code reads it back.
+2. **Borland's `_vprinter` reads it back.** `seg001_291B` is `call $+3` — the
+   "push IP" idiom — and `seg001_2AFC` later does `pop cx; add cx,3; jmp cx` to
+   resume past it. With `0` pushed, that computed `jmp` targeted `seg1:0003`.
+3. **`dispatch_near` missed**, and its miss path pops a frame the guest still
+   owns, so `_vprinter` (`seg001_269C`) returned mid-body with its `0x2A`-byte
+   frame and saved `si/di/es` still on the stack: **44 bytes of guest stack
+   leaked per formatted string**.
+4. The 64 KB guest stack drained, SP wrapped past `0`, and saved-`DS` slots read
+   back as `0`.
+5. A null `DS` makes `push ds; push 0x13F0` produce `0000:13F0`, so
+   `GetPrivateProfileString` got a null `lpAppName`/`lpFileName` — which in
+   Win16 means "return the section list", i.e. the literal string `"Catz"`.
+6. The engine opened a file named `Catz`, it did not exist, it threw, and no
+   handler was found.
+
+The earlier "Negative result: the null-DS config reads are NOT the abort's
+cause" commit was **wrong**, and instructively so: that experiment substituted
+the section pointer only, leaving the *filename* pointer null, so the read still
+returned garbage and the abort still fired. Half a fix measured as no fix.
+
+Fixes, all in the shared toolbox:
+
+- `ne_lift.py` pushes the **real return offset** (`local_off + inst.length`) for
+  near, far, and indirect calls instead of `0`.
+- `ne_lift.py` treats `call $+3` as **push-only** — emitting a C call there ran
+  the rest of the function twice (once nested, once via the fall-through) and
+  popped a frame that no longer existed.
+- `ne_decode.py` seeds a basic-block start at **the instruction after any
+  unconditional transfer** (`jmp`/`ret`/`retf`/`iret`). Nothing falls into such
+  an address, so it is either dead or a computed-jump target — `0x2921` here had
+  no label at all, which is why the dispatcher could not have resolved it even
+  with the right address.
+
+Measurement that found it: `tools/bpguard.py` (now also checking SP balance)
+plus the `[SP-DROP]` detector in `catz_sp_check`. `seg001_269C returned sp
+FA8E->FA62` was the first violation in the run; every later one was downstream
+damage.
+
+</details>
 
 ### Build notes that are easy to lose
 
@@ -110,8 +158,10 @@ the abort at all. Restart from `seg016_1822`'s loop.
 
 | Tool | What it answers |
 |------|-----------------|
-| `dump_guest_stack()` | The guest call stack — the guest stack can't be walked (the lifter pushes a literal 0 as the far-return offset), so this captures the **host** stack and prints file VAs for `addr2line -f -e build/catz.exe`. ASLR is off so addresses paste straight in. |
-| `tools/bpguard.py` | Instruments all ~10k call sites and reports any callee that fails to preserve **BP or DS**. Found two systemic lifter bugs. |
+| `dump_guest_stack()` | The guest call stack — the guest stack can't be walked (the lifter pushes only the return *offset*, not a walkable frame), so this captures the **host** stack and prints file VAs for `addr2line -f -e build/catz.exe`. ASLR is off so addresses paste straight in. |
+| `tools/bpguard.py` | Instruments all ~10k call sites and reports any callee that fails to preserve **BP or DS**, or that returns with **SP** below the pre-call value. Found every systemic lifter bug so far. Revert with `git checkout src/`. |
+| `[SP-DROP]` / `[SP-LOW]` (in `-DCATZ_WATCH_SP`) | Single-step guest-SP plunges and low-water floors, each with the last 40 guest labels. A leak shows up here long before it corrupts anything visible. |
+| `[NULL-SEL]` (always on) | A profile call whose app/file pointer arrives as `0000:<offset>` — a far pointer built from a null DS — with the caller's stack. |
 | `CATZ_WATCH=seg:off` + `-DCATZ_WATCH_MEM` | Guest write watchpoint with host backtrace; can be gated to one frame's lifetime (stack slots alias across frames, which produces false leads otherwise). |
 | `-DCATZ_WATCH_SP` | Guest stack low-water marks; also tracks where each run of `ds==0` begins. |
 | `-DCATZ_TRACE_WIN16` | Every shim call, including all file I/O and the engine's own `OutputDebugString` log. |
@@ -127,10 +177,14 @@ the engine globally:
   format string with `es: lodsb`, so *every formatted string in the engine* was
   read from the wrong segment.
 - **Register-indirect `jmp`/`call` dropped entirely.** `jmp cx` became a bare
-  comment, so the C function fell off its end and returned. In `_scanner` that
+  comment, so the C function fell off its end and returned. In `_vprinter` that
   is the `pop cx; add cx,3; jmp cx` idiom — the function returned straight
   after its prologue with its frame still allocated, corrupting BP, then DS,
   then every far pointer built as `push ds`.
+- **Literal-`0` return addresses, `call $+3` lifted as a real call, and no label
+  after an unconditional transfer.** Together these leaked 44 bytes of guest
+  stack per formatted string until the 64 KB stack wrapped. See the resolved
+  abort above — this was the one that had to be fixed to load a pet.
 
 Also: jump-table targets and `OFFSET16` catch-handler relocations are now
 lifted (a missing catch handler meant *no* exception could ever be caught), the

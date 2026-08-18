@@ -233,6 +233,18 @@ def detect_functions(seg: Segment, instructions: list, forced_entries=None) -> l
         if off in valid:
             starts.add(off)
 
+    # The instruction after an unconditional transfer starts a new basic block:
+    # nothing falls into it, so it is either dead or reachable only by a computed
+    # jump. Borland's `call $+3` / `pop cx; add cx,3; jmp cx` idiom lands exactly
+    # there, and without a start the address has no lifted label, the dispatcher
+    # misses, and its miss path pops a frame the guest still owns --- which leaks
+    # guest stack on every printf until SP wraps past 0.
+    for i, inst in enumerate(instructions):
+        if inst.mnemonic not in ('jmp', 'ret', 'retf', 'iret'):
+            continue
+        if i + 1 < len(instructions) and inst_off[i + 1] in valid:
+            starts.add(inst_off[i + 1])
+
     # Always capture leading code
     starts.add(inst_off[0])
 

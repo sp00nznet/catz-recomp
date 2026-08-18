@@ -109,7 +109,8 @@ class NELifter(Lifter):
         if m == 'call' and op1 and op1.type == OpType.FAR:
             func_name = self._resolve_far_call(inst)
             if func_name and not func_name.startswith('/*'):
-                self._emit(f'push16(cpu, cpu->cs); push16(cpu, 0);', 'far call return addr')
+                self._emit(f'push16(cpu, cpu->cs); push16(cpu, 0x{local_off + inst.length:04X});',
+                           'far call return addr')
                 self._emit(f'{func_name}(cpu);', orig)
             elif func_name:
                 self._emit(func_name, orig)
@@ -123,7 +124,7 @@ class NELifter(Lifter):
             read = (f'uint16_t _o = mem_read16(cpu, {seg_e}, {off_e}); '
                     f'uint16_t _s = mem_read16(cpu, {seg_e}, (uint16_t)({off_e} + 2));')
             if m == 'call far':
-                self._emit(f'{{ {read} push16(cpu, cpu->cs); push16(cpu, 0); '
+                self._emit(f'{{ {read} push16(cpu, cpu->cs); push16(cpu, 0x{local_off + inst.length:04X}); '
                            f'dispatch_far(cpu, _s, _o); }}', orig)
             else:  # jmp far -> tail dispatch
                 self._emit(f'{{ {read} dispatch_far(cpu, _s, _o); return; }}', orig)
@@ -135,7 +136,7 @@ class NELifter(Lifter):
             idx = self.seg.index
             if m == 'call':
                 self._emit(f'{{ uint16_t _o = mem_read16(cpu, {seg_e}, {off_e}); '
-                           f'push16(cpu, 0); dispatch_near(cpu, {idx}, _o); }}', orig)
+                           f'push16(cpu, 0x{local_off + inst.length:04X}); dispatch_near(cpu, {idx}, _o); }}', orig)
             else:  # jmp near indirect -> tail dispatch
                 self._emit(f'{{ uint16_t _o = mem_read16(cpu, {seg_e}, {off_e}); '
                            f'dispatch_near(cpu, {idx}, _o); return; }}', orig)
@@ -185,9 +186,17 @@ class NELifter(Lifter):
         # --- Near calls ---
         if m == 'call' and op1 and op1.type in (OpType.REL8, OpType.REL16):
             target = op1.disp
+            # `call $+3` targets the very next instruction: it is not a call at
+            # all, it is Borland's "push IP" -- the pushed address is later read
+            # back by `pop cx; add cx,3; jmp cx`. Emitting a C call here would
+            # run the rest of the function twice (once nested, once via the
+            # fall-through) and pop a frame that no longer exists. Push only.
+            if target == local_off + inst.length:
+                self._emit(f'push16(cpu, 0x{target:04X});', 'push IP (call $+3)')
+                return
             func_name = f'seg{self.seg.index:03d}_{target:04X}'
             self.func_calls.add(func_name)
-            self._emit(f'push16(cpu, 0);', 'near call return addr')
+            self._emit(f'push16(cpu, 0x{local_off + inst.length:04X});', 'near call return addr')
             self._emit(f'{func_name}(cpu);', orig)
             return
 
@@ -244,7 +253,7 @@ class NELifter(Lifter):
             if m == 'jmp':
                 self._emit(f'dispatch_near(cpu, {idx}, cpu->{reg}); return;', orig)
             else:
-                self._emit(f'{{ push16(cpu, 0); dispatch_near(cpu, {idx}, cpu->{reg}); }}', orig)
+                self._emit(f'{{ push16(cpu, 0x{local_off + inst.length:04X}); dispatch_near(cpu, {idx}, cpu->{reg}); }}', orig)
             return
 
         # --- String ops with a SEGMENT OVERRIDE on the source ---

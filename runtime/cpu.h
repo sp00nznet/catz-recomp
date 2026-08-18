@@ -137,6 +137,7 @@ void catz_unreachable(const char *seg, unsigned off);
  * changed (bp is callee-saved in every Borland Win16 frame). */
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
 void catz_ds_broke(const char *callee, uint16_t ds0, uint16_t ds1);
+void catz_sp_broke(const char *callee, uint16_t sp0, uint16_t sp1);
 
 /* Where the current run of ds==0 began (main.c); always available. */
 extern const char *g_ds_zero_from;
@@ -186,10 +187,15 @@ static inline uint8_t mem_read8(CPU *cpu, uint16_t seg, uint16_t off) {
 extern uint16_t g_watch_seg, g_watch_off;
 extern int g_watch_armed;
 void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val);
+/* Gate the watchpoint to one frame's lifetime: stack slots alias across frames,
+   so an ungated watch on a `ss:[bp-N]` slot reports mostly unrelated writers.
+   Arm at the prologue that stores the slot, disarm where it is read back. */
+void catz_watch_frame(uint16_t seg, uint16_t off, int on);
 #define CATZ_WATCH_CHECK(s, o, v) \
     do { if ((s) == g_watch_seg && (o) == g_watch_off) catz_watch_hit((s), (o), (v)); } while (0)
 #else
 #define CATZ_WATCH_CHECK(s, o, v) ((void)0)
+#define catz_watch_frame(s, o, n) ((void)0)
 #endif
 
 static inline void mem_write8(CPU *cpu, uint16_t seg, uint16_t off, uint8_t val) {

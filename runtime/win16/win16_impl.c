@@ -571,9 +571,13 @@ static int map_guest_path(const char *g, char *host, int hostsz) {
     return 1;
 }
 
+/* Kept for the trace: a failed open must report the path the guest asked
+   for, which is the whole diagnostic when the engine composes one wrong. */
+static char g_last_dos_path[192];
+
 static int dos_map_path(CPU *cpu, char *host, int hostsz) {
-    char g[192]; read_asciiz(cpu, cpu->ds, cpu->dx, g, sizeof g);
-    return map_guest_path(g, host, hostsz);
+    read_asciiz(cpu, cpu->ds, cpu->dx, g_last_dos_path, sizeof g_last_dos_path);
+    return map_guest_path(g_last_dos_path, host, hostsz);
 }
 
 void dos_int21(CPU *cpu) {
@@ -600,7 +604,7 @@ void dos_int21(CPU *cpu) {
         } else {
             if (f) fclose(f);
             cpu->ax = 0x02; cpu->flags |= FLAG_CF;
-            IMPL_LOG("[INT21] open -> not found\n");
+            IMPL_LOG("[INT21] open -> not found (%s)\n", g_last_dos_path);
         }
         break;
     }
@@ -705,6 +709,23 @@ static int ini_resolve(const char *guest, const char *app, const char *key,
     return 0;                       /* no hit: caller's default stands */
 }
 
+/* A profile call whose app-name or file-name arrives with a null selector is
+   the guest building a far pointer from a null DS, not an intentional NULL:
+   Win16 code passes 0000:0000, never 0000:<offset>. Report the caller so the
+   corruption is traced to its source rather than silently answering garbage
+   (lpAppName=NULL makes GetPrivateProfileString return the *section list*). */
+static void ini_check_selectors(CPU *cpu, const char *who,
+                                uint16_t apseg, uint16_t apoff,
+                                uint16_t fnseg, uint16_t fnoff) {
+    static int fired = 0;
+    if ((apseg || !apoff) && (fnseg || !fnoff)) return;
+    if (fired++ >= 4) return;
+    fprintf(stderr, "[NULL-SEL] %s: app=%04X:%04X file=%04X:%04X\n",
+            who, apseg, apoff, fnseg, fnoff);
+    dump_guest_stack(cpu, 30);
+    fflush(stderr);
+}
+
 void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
     /* (lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, lpFileName) */
     uint16_t fnoff = a16(cpu, 0),  fnseg = a16(cpu, 2);
@@ -720,6 +741,7 @@ void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
     if (dfseg) read_asciiz(cpu, dfseg, dfoff, def, sizeof def);
     if (fnseg) read_asciiz(cpu, fnseg, fnoff, file, sizeof file);
 
+    ini_check_selectors(cpu, "GetPrivateProfileString", apseg, apoff, fnseg, fnoff);
     char host[320]; ini_resolve(file, app, key, host, sizeof host);
     char val[1024];
     DWORD n = GetPrivateProfileStringA(apseg ? app : NULL, kyseg ? key : NULL,
@@ -746,6 +768,7 @@ void KERNEL_GETPRIVATEPROFILEINT(CPU *cpu) {
     if (kyseg) read_asciiz(cpu, kyseg, kyoff, key, sizeof key);
     if (fnseg) read_asciiz(cpu, fnseg, fnoff, file, sizeof file);
 
+    ini_check_selectors(cpu, "GetPrivateProfileInt", apseg, apoff, fnseg, fnoff);
     char host[320]; ini_resolve(file, app, key, host, sizeof host);
     cpu->ax = (uint16_t)GetPrivateProfileIntA(app, key, ndef, host);
     fprintf(stderr, "[ini] GetPrivateProfileInt(%s, [%s]@%04X:%04X %s) -> %u\n",

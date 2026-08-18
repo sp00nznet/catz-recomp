@@ -72,6 +72,23 @@ void catz_sp_check(const char *nm)
             g_ds_run = 0;
         }
     }
+    /* A single-step plunge is a stack switch or a bogus `sub sp`, not ordinary
+       frame growth; report the pair of calls it happened between. */
+    {   static uint16_t prev_sp = 0xFFFE; static const char *prev_nm = "?";
+        static int shown = 0;
+        if (shown < 8 && prev_sp > sp && (uint16_t)(prev_sp - sp) > 0x400) {
+            shown++;
+            fprintf(stderr, "[SP-DROP] %04X -> %04X (-%u) between %s and %s\n",
+                    prev_sp, sp, (unsigned)(prev_sp - sp), prev_nm, nm);
+            fprintf(stderr, "  last 40 labels:");
+            for (int i = 40; i > 0; i--) {
+                const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+                if (r) fprintf(stderr, " %s", r);
+            }
+            fprintf(stderr, "\n");
+        }
+        prev_sp = sp; prev_nm = nm;
+    }
     if (next_floor >= sizeof floors / sizeof floors[0]) return;
     if (sp > floors[next_floor]) return;
     fprintf(stderr, "\n[SP-LOW] guest sp=%04X (below %04X) at %s\n", sp, floors[next_floor], nm);
@@ -129,6 +146,23 @@ static LONG CALLBACK stack_overflow_veh(EXCEPTION_POINTERS *ep)
     fflush(stderr);
     _exit(98);
     return EXCEPTION_CONTINUE_SEARCH;
+}
+
+/* sp on return from a call must be the pre-call sp plus the callee's purge.
+   Below it means leaked guest stack; far above it means the callee unwound
+   a frame it did not own. Either way the 64 KB guest stack is being eaten. */
+void catz_sp_broke(const char *callee, uint16_t sp0, uint16_t sp1)
+{
+    static int fired = 0;
+    if (fired++ >= 8) return;
+    fprintf(stderr, "[SP-BROKE] %s returned sp %04X->%04X\n", callee, sp0, sp1);
+    fprintf(stderr, "  last 24 labels:");
+    for (int i = 24; i > 0; i--) {
+        const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+        if (r) fprintf(stderr, " %s", r);
+    }
+    fprintf(stderr, "\n");
+    fflush(stderr);
 }
 
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1)
@@ -296,6 +330,12 @@ void catz_watch_hit(uint16_t seg, uint16_t off, uint16_t val)
     if (n++ >= 12) return;
     fprintf(stderr, "\n[WATCH] write %04X:%04X = %04X\n", seg, off, val);
     dump_guest_stack(g_cpu, 24);
+}
+
+void catz_watch_frame(uint16_t seg, uint16_t off, int on)
+{
+    if (on) { g_watch_seg = seg; g_watch_off = off; }
+    g_watch_armed = on;
 }
 
 static void catz_watch_init(void)
