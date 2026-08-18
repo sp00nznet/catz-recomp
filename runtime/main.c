@@ -134,8 +134,31 @@ void dump_guest_stack(CPU *cpu, int max)
  * to actually run this handler. */
 static LONG CALLBACK stack_overflow_veh(EXCEPTION_POINTERS *ep)
 {
-    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_STACK_OVERFLOW)
-        return EXCEPTION_CONTINUE_SEARCH;
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_STACK_OVERFLOW) {
+        /* Any other fatal exception kills the host with no output at all --
+           the process just returns a shell-level status and the run looks like
+           it "stopped" wherever stderr happened to end. Name it, and print the
+           same guest evidence, before letting the OS take it. Non-fatal codes
+           (breakpoints, C++ EH, debugger notifications) pass straight through. */
+        if (code != EXCEPTION_ACCESS_VIOLATION &&
+            code != EXCEPTION_ILLEGAL_INSTRUCTION &&
+            code != EXCEPTION_INT_DIVIDE_BY_ZERO &&
+            code != EXCEPTION_PRIV_INSTRUCTION &&
+            code != EXCEPTION_IN_PAGE_ERROR &&
+            code != EXCEPTION_ARRAY_BOUNDS_EXCEEDED)
+            return EXCEPTION_CONTINUE_SEARCH;
+        fprintf(stderr, "\n[CRASH] exception %08lX at %p; last 40 guest calls:\n",
+                (unsigned long)code, ep->ExceptionRecord->ExceptionAddress);
+        for (int i = 40; i > 0; i--) {
+            const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+            if (nm) fprintf(stderr, " %s", nm);
+        }
+        fprintf(stderr, "\n");
+        if (g_cpu) dump_guest_stack(g_cpu, 40);
+        fflush(stderr);
+        _exit(96);
+    }
     fprintf(stderr, "\n[STACK-OVERFLOW] host stack exhausted; last 64 calls "
                     "(oldest first), total=%u:\n", g_fn_ring_pos);
     for (int i = 64; i > 0; i--) {
@@ -344,6 +367,10 @@ static void catz_watch_init(void)
     unsigned s, o;
     if (w && sscanf(w, "%x:%x", &s, &o) == 2) {
         g_watch_seg = (uint16_t)s; g_watch_off = (uint16_t)o;
+        /* Arming from the env var has to actually arm: the frame gate
+           (catz_watch_frame) is for narrowing a stack slot to one frame, not a
+           precondition for watching a heap address. */
+        g_watch_armed = 1;
         fprintf(stderr, "[WATCH] armed on %04X:%04X\n", g_watch_seg, g_watch_off);
     }
 }

@@ -79,6 +79,22 @@ static uint16_t galloc(CPU *cpu, uint32_t bytes) {
     return s;
 }
 
+/* GMEM_ZEROINIT. The engine relies on it: ball records are accumulated into
+ * (`add es:[bx+0x1A], ax`), never assigned, so a block handed back off the free
+ * list still holding a previous tenant's bytes yields plausible-looking but
+ * wrong geometry rather than an obvious failure. The Borland RTL's startup
+ * free-memory probe allocates and frees 4 KB blocks, so the free list is
+ * already dirty by the time the engine allocates anything. */
+#define GMEM_ZEROINIT 0x0040
+
+static void gzero(CPU *cpu, uint16_t sel) {
+    if (!sel) return;
+    uint32_t base = g_sel_base[sel], n = g_sel_size[sel];
+    if (base >= cpu->mem_size) return;
+    if (n > cpu->mem_size - base) n = cpu->mem_size - base;
+    memset(cpu->mem + base, 0, n);
+}
+
 static void gfree(CPU *cpu, uint16_t sel) {
     if (!sel || !g_sel_size[sel]) return;
     if (fl_n < MAX_FREE) { fl_base[fl_n] = g_sel_base[sel]; fl_size[fl_n] = g_sel_size[sel]; fl_n++; }
@@ -90,6 +106,7 @@ void KERNEL_GLOBALALLOC(CPU *cpu) {
     uint16_t wFlags = a16(cpu, 4);
     uint32_t bytes  = a32(cpu, 0);
     uint16_t sel    = galloc(cpu, bytes);
+    if (wFlags & GMEM_ZEROINIT) gzero(cpu, sel);
     IMPL_LOG("[win16] GlobalAlloc(flags=%04X, %u) -> %04X\n", wFlags, bytes, sel);
     cpu->ax = sel;                          /* handle */
     if (sel) cpu->flags &= ~FLAG_CF; else cpu->flags |= FLAG_CF;
