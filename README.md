@@ -88,12 +88,37 @@ index), `cat.scp` (behaviour script), `cat0.bdt` (animation frames) → then
 real `StretchDIBits` from the WinG surface, but it has never executed — init
 still dies first, just much later.
 
-Next: the `sqrt` domain error. It is a first-class FPU/geometry bug, unrelated
-to everything above — a negative operand reaching `sqrt` during skeleton or
-physics setup. Candidates in order: an x87 op still lifted approximately
-(`shld`/`shrd`/`rcl`/`rcr`/`sahf` are decoded but TODO), a wrongly-read `.bdt`
-frame value, or a control-word/rounding difference. Start by trapping the
-domain error at the shim and dumping the operand and the guest stack.
+### Next: the `sqrt` domain error (measured, not yet fixed)
+
+`seg036_3C86` computes a vector length as `sqrt(x*x + y*y + z*z)`: three
+`movsx`/`imul` pairs into `eax`, stored to `[bp-0x60]`, then `fild dword` →
+`fstp qword` → the RTL `sqrt` (`seg001_134A`). Reached via
+`seg063_1439 → seg034_1327 → seg016_1291 → seg047_2CFC → seg047_26ED →
+seg047_44C9 → seg047_3C8E → seg036_01BB → seg036_3C86`.
+
+Instrumenting the operand gives:
+
+```
+[SUMSQ] x=-18385 y=-17153 z=-7773  sum=692653163
+[SUMSQ] x=-17754 y=-21399 z=30464  sum=1701177013
+...
+[SUMSQ] x=32361  y=-23773 z=-32333 sum=-1637154557   <- int32 overflow
+```
+
+The overflow is the symptom: 32361² + 23773² + 32333² = 2,657,812,739, which
+does not fit in `int32`, so `fild` reads it back negative. **The bug is the
+inputs.** These are ball coordinates for a cat skeleton — they should be tens to
+hundreds, not the full ±32767 range. Every sample is garbage-scaled, including
+the ones that happen not to overflow, so this is not an edge case reached after
+good frames.
+
+`x`/`y`/`z` (`[bp-0x36]`, `[bp-0x34]`, `[bp-0x32]`) are built in the same
+function by 16-bit `imul`s over `[bp-0x30]`, `[bp-0x2C]`, `[bp-0x2E]` and
+`[bp-0x26]`, `[bp-0x28]`, `[bp-0x2A]` — a fixed-point rotation applied to a
+position. So chase the source of those two operand groups: the run has just
+opened `cat0.bdt`, so mis-read BDT frame data is the leading candidate, ahead of
+a mis-lifted x87/386 op in the transform (`shld`/`shrd`/`rcl`/`rcr`/`sahf` are
+decoded but still TODO).
 
 <details><summary>Resolved: the "Abnormal program termination" abort (2026-08)</summary>
 

@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <windows.h>
 
 #ifdef CATZ_TRACE_WIN16
@@ -406,7 +407,15 @@ void USER_MESSAGEBOX(CPU *cpu) {
     read_asciiz(cpu, tseg, toff, text, sizeof(text));
     read_asciiz(cpu, cseg, coff, cap, sizeof(cap));
     fprintf(stderr, "[MessageBox] \"%s\" | \"%s\"\n", cap, text);
-    if (strstr(text, "memory") || strstr(text, "Memory") || strstr(text, "Abnormal") || strstr(text, "abnormal") || strstr(text, "Abort") || strstr(text, "abort")) {
+    /* The engine reports its own fatal conditions through MessageBox, so a
+       matching caption is the only notice we get. Match case-insensitively and
+       include "error" -- the RTL's math diagnostics ("sqrt: DOMAIN error")
+       arrive this way and were previously invisible. */
+    char low[256];
+    for (unsigned i = 0; i < sizeof low; i++) low[i] = (char)tolower((unsigned char)text[i]);
+    low[sizeof low - 1] = 0;
+    if (strstr(low, "memory") || strstr(low, "abnormal") || strstr(low, "abort")
+            || strstr(low, "error") || strstr(low, "assert")) {
         extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
         fprintf(stderr, "[abort] recent 120 fns:");
         for (int i = 120; i > 0; i--) { const char *r = g_fn_ring[(g_fn_ring_pos-(unsigned)i) & ((1u<<12)-1)]; if (r) fprintf(stderr, " %s", r+3); }
