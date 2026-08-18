@@ -153,12 +153,26 @@ static void scan_tagmap(Mod *m) {
     }
 }
 
+/* The (tag,id) records are the ones CATZDLL's data segment happens to mention
+ * literally, NOT the full set of resources: type 0x7F04 holds names 1000, 2000,
+ * 3000 and 4000, but only 2000/3000/4000 have a record. Requiring an exact pair
+ * therefore left STBL/1000 unresolvable, FindResource returned 0, and the engine
+ * threw. A tag names the resource *type* and the id names the resource, so fall
+ * back to the tag alone -- but only when it is unambiguous: PALT appears under
+ * both 0x7F03 and 0x7F04, and for that one the exact records are what
+ * discriminate. */
 static int tag_to_type(const char *tag, int id) {
     if (id < 0 || !tag) return -1;
     for (int i = 0; i < g_ntag; i++)
         if (g_tagmap[i].id == (uint16_t)id && ieq(g_tagmap[i].tag, tag))
             return g_tagmap[i].type;
-    return -1;
+    int found = -1;
+    for (int i = 0; i < g_ntag; i++) {
+        if (!ieq(g_tagmap[i].tag, tag)) continue;
+        if (found >= 0 && found != (int)g_tagmap[i].type) return -1;   /* ambiguous */
+        found = (int)g_tagmap[i].type;
+    }
+    return found;
 }
 
 void ne_init(void) {
