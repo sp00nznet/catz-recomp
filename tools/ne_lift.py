@@ -206,7 +206,17 @@ class NELifter(Lifter):
         # the lifted CODE uses the immediate directly, so resolve it here.
         # Covers taking the address of a function/data (incl. cross-module, e.g.
         # a CATZDLL export's offset/selector stored as a WAD callback pointer).
-        if m == 'mov' and op2 and op2.type in (OpType.IMM8, OpType.IMM16):
+        # `push SEG symbol` carries the same fixup and was NOT covered: the raw
+        # 0xFFFF placeholder went straight through, so every far pointer built as
+        # `push <selector>; push <offset>` pointed at selector 0xFFFF -- the guard
+        # region, where every unmapped access aliases onto every other. The engine
+        # passes its WinG BITMAPINFO that way, so the header it filled in was
+        # overwritten by an unrelated string before WinGCreateBitmap read it back.
+        _reloc_imm = ((m == 'mov' and op2 and op2.type in (OpType.IMM8, OpType.IMM16))
+                      or (m == 'push' and op1 and op1.type in (OpType.IMM8, OpType.IMM16)))
+        if _reloc_imm:
+            _put = ((lambda v: f'push16(cpu, {v});') if m == 'push'
+                    else (lambda v: _write(op1, v)))
             for off in range(local_off + 1, local_off + inst.length):
                 ann = self._get_reloc_at(off)
                 if not ann:
@@ -215,26 +225,26 @@ class NELifter(Lifter):
                 tt = r.flags & 3
                 if r.src_type == 2:        # SELECTOR (segment of a symbol)
                     if tt == 0:
-                        self._emit(_write(op1, f'SEG_{r.target_seg}'),
+                        self._emit(_put(f'SEG_{r.target_seg}'),
                                    f'{orig} -- selector for seg{r.target_seg}')
                         return
                     elif tt in (1, 2):     # cross-module selector (e.g. CATZDLL)
                         mod = module_name(self.ne, r.module_idx)
                         xm = self.xmod.get(mod.upper())
                         if xm and r.ordinal in xm:
-                            self._emit(_write(op1, f'SEG_{xm[r.ordinal][0]}'),
+                            self._emit(_put(f'SEG_{xm[r.ordinal][0]}'),
                                        f'{orig} -- selector for {mod}.{r.ordinal}')
                             return
                 elif r.src_type == 5:      # OFFSET16 (offset of a symbol)
                     if tt == 0:
-                        self._emit(_write(op1, f'0x{r.target_off & 0xFFFF:04X}'),
+                        self._emit(_put(f'0x{r.target_off & 0xFFFF:04X}'),
                                    f'{orig} -- offset of seg{r.target_seg}:{r.target_off:04X}')
                         return
                     elif tt in (1, 2):
                         mod = module_name(self.ne, r.module_idx)
                         xm = self.xmod.get(mod.upper())
                         if xm and r.ordinal in xm:
-                            self._emit(_write(op1, f'0x{xm[r.ordinal][1] & 0xFFFF:04X}'),
+                            self._emit(_put(f'0x{xm[r.ordinal][1] & 0xFFFF:04X}'),
                                        f'{orig} -- offset of {mod}.{r.ordinal}')
                             return
 
