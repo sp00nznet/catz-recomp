@@ -324,9 +324,12 @@ static DlgText *dlgtxt(uint16_t hdlg, uint16_t id, int create) {
 void USER_SETDLGITEMTEXT(CPU *cpu) {         /* (hDlg@6, nIDDlgItem@4, lpString@0/2) */
     uint16_t hdlg = b_a16(cpu, 6), id = b_a16(cpu, 4);
     uint16_t soff = b_a16(cpu, 0), sseg = b_a16(cpu, 2);
-    DlgText *t = dlgtxt(hdlg, id, 1);
-    if (t && sseg) b_asciiz(cpu, sseg, soff, t->text, sizeof t->text);
-    else if (t) t->text[0] = 0;
+    char buf[128] = "";
+    if (sseg) b_asciiz(cpu, sseg, soff, buf, sizeof buf);
+    HWND c = GetDlgItem(get_hwnd(hdlg), id);
+    if (c) SetWindowTextA(c, buf);            /* a real control now exists */
+    DlgText *t = dlgtxt(hdlg, id, 1);         /* mirror it for items that do not */
+    if (t) snprintf(t->text, sizeof t->text, "%s", buf);
     cpu->ax = 1;
     b_ret(cpu, 8);
 }
@@ -335,8 +338,11 @@ void USER_GETDLGITEMTEXT(CPU *cpu) {         /* (hDlg@8, nID@6, lpString@2/4, nM
     uint16_t hdlg = b_a16(cpu, 8), id = b_a16(cpu, 6);
     uint16_t soff = b_a16(cpu, 2), sseg = b_a16(cpu, 4);
     uint16_t nmax = b_a16(cpu, 0);
+    char live[128] = "";
+    HWND c = GetDlgItem(get_hwnd(hdlg), id);
+    if (c) GetWindowTextA(c, live, sizeof live);
     DlgText *t = dlgtxt(hdlg, id, 0);
-    const char *src = t ? t->text : "";
+    const char *src = live[0] ? live : (t ? t->text : "");
     uint16_t n = 0;
     if (sseg && nmax) {
         for (; src[n] && n + 1 < nmax; n++)
@@ -350,8 +356,9 @@ void USER_GETDLGITEMTEXT(CPU *cpu) {         /* (hDlg@8, nID@6, lpString@2/4, nM
 void USER_GETDLGITEM(CPU *cpu) {             /* (hDlg@2, nIDDlgItem@0) */
     /* No real control window, but returning 0 makes callers treat the item as
      * missing and bail. Hand back a stable non-zero pseudo-handle per id. */
-    uint16_t id = b_a16(cpu, 0);
-    cpu->ax = (uint16_t)(0xD000 | (id & 0x0FFF));
+    uint16_t hdlg = b_a16(cpu, 2), id = b_a16(cpu, 0);
+    HWND c = GetDlgItem(get_hwnd(hdlg), id);
+    cpu->ax = c ? put_hwnd(c) : (uint16_t)(0xD000 | (id & 0x0FFF));
     b_ret(cpu, 4);
 }
 
@@ -366,6 +373,103 @@ void USER_ENDDIALOG(CPU *cpu) {
     fprintf(stderr, "[win32] EndDialog(result=%u)\n", code);
     cpu->ax = 1;
     b_ret(cpu, 4);
+}
+
+/* ---- Win16 DLGTEMPLATE -> real child controls ----
+ * Rather than repack the template into a Win32 DLGTEMPLATE (aligned, Unicode,
+ * a different layout end to end), parse the Win16 one and create each item with
+ * CreateWindowEx against the matching predefined class. The dialog window itself
+ * is ours already, so this is all that was missing: with no controls the engine
+ * could set no text, read none back, and no button could ever be pressed.
+ *
+ *   DLGTEMPLATE: DWORD style; BYTE nItems; WORD x,y,cx,cy;
+ *                sz menu; sz class; sz caption;
+ *                [DS_SETFONT: WORD pointSize; sz typeface]
+ *   DLGITEMTEMPLATE: WORD x,y,cx,cy; WORD id; DWORD style;
+ *                    class (sz, or one byte 0x80..0x85); sz text; BYTE cbExtra
+ */
+#define DS_SETFONT_W16 0x40
+
+static const uint8_t *w16_sz(const uint8_t *p, const uint8_t *end, char *out, int max) {
+    int i = 0;
+    while (p < end && *p) { if (i < max - 1) out[i++] = (char)*p; p++; }
+    out[i] = 0;
+    return (p < end) ? p + 1 : end;
+}
+
+static const char *w16_ctl_class(uint8_t ord) {
+    switch (ord) {
+        case 0x80: return "Button";
+        case 0x81: return "Edit";
+        case 0x82: return "Static";
+        case 0x83: return "ListBox";
+        case 0x84: return "ScrollBar";
+        case 0x85: return "ComboBox";
+        default:   return NULL;
+    }
+}
+
+/* Returns the dialog's own size in dialog units converted to pixels, or 0. */
+static int dlg_build(CPU *cpu, uint16_t hinst, uint16_t tmpl, HWND dlg,
+                     int *out_w, int *out_h, char *cap, int capsz) {
+    uint16_t hr = ne_find_resource(hinst, 5 /* RT_DIALOG */, NULL, (int)tmpl, NULL);
+    uint32_t len = 0;
+    const uint8_t *p = hr ? ne_resource_bytes(hr, &len) : NULL;
+    if (!p || len < 14) return 0;
+    const uint8_t *end = p + len;
+
+    uint32_t style = (uint32_t)p[0] | ((uint32_t)p[1] << 8)
+                   | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    int nitems = p[4];
+    int cx = p[9] | (p[10] << 8), cy = p[11] | (p[12] << 8);
+    p += 13;
+
+    char buf[128];
+    p = w16_sz(p, end, buf, sizeof buf);          /* menu    */
+    p = w16_sz(p, end, buf, sizeof buf);          /* class   */
+    p = w16_sz(p, end, cap, capsz);               /* caption */
+    if (style & DS_SETFONT_W16) {
+        if (p + 2 <= end) p += 2;                 /* point size */
+        p = w16_sz(p, end, buf, sizeof buf);      /* typeface   */
+    }
+
+    /* Dialog units -> pixels using the system dialog base units. */
+    LONG bu = GetDialogBaseUnits();
+    int bux = LOWORD(bu), buy = HIWORD(bu);
+    *out_w = cx * bux / 4;
+    *out_h = cy * buy / 8;
+
+    int made = 0;
+    for (int i = 0; i < nitems && p + 14 <= end; i++) {
+        int ix = p[0] | (p[1] << 8), iy = p[2] | (p[3] << 8);
+        int iw = p[4] | (p[5] << 8), ih = p[6] | (p[7] << 8);
+        uint16_t id = (uint16_t)(p[8] | (p[9] << 8));
+        uint32_t istyle = (uint32_t)p[10] | ((uint32_t)p[11] << 8)
+                        | ((uint32_t)p[12] << 16) | ((uint32_t)p[13] << 24);
+        p += 14;
+
+        char cls[64] = "", text[128] = "";
+        if (p < end && *p >= 0x80 && *p <= 0x85) {
+            const char *k = w16_ctl_class(*p);
+            snprintf(cls, sizeof cls, "%s", k ? k : "Static");
+            p++;
+        } else {
+            p = w16_sz(p, end, cls, sizeof cls);
+        }
+        p = w16_sz(p, end, text, sizeof text);
+        if (p < end) p += 1 + *p;                 /* cbExtra + creation data */
+
+        HWND c = CreateWindowExA(0, cls, text,
+                                 (DWORD)(istyle | WS_CHILD) & ~(DWORD)WS_POPUP,
+                                 ix * bux / 4, iy * buy / 8,
+                                 iw * bux / 4, ih * buy / 8,
+                                 dlg, (HMENU)(UINT_PTR)id,
+                                 GetModuleHandle(NULL), NULL);
+        if (c) made++;
+    }
+    fprintf(stderr, "[win32] dialog %u template: %d/%d controls, %dx%d dlgunits "
+                    "-> %dx%d px\n", tmpl, made, nitems, cx, cy, *out_w, *out_h);
+    return 1;
 }
 
 void USER_DIALOGBOXPARAM(CPU *cpu) {
@@ -390,6 +494,18 @@ void USER_DIALOGBOXPARAM(CPU *cpu) {
                              CW_USEDEFAULT, CW_USEDEFAULT,
                              rc.right - rc.left, rc.bottom - rc.top,
                              NULL, NULL, GetModuleHandle(NULL), NULL);
+    if (h) {
+        int tw = 0, th = 0;
+        char cap[128] = "";
+        if (dlg_build(cpu, b_a16(cpu, 14), tmpl, h, &tw, &th, cap, sizeof cap)
+                && tw > 16 && th > 16) {
+            if (cap[0]) SetWindowTextA(h, cap);
+            RECT want = { 0, 0, tw, th };
+            AdjustWindowRect(&want, WS_OVERLAPPEDWINDOW, FALSE);
+            SetWindowPos(h, NULL, 0, 0, want.right - want.left, want.bottom - want.top,
+                         SWP_NOMOVE | SWP_NOZORDER);
+        }
+    }
     uint16_t gh = h ? put_hwnd(h) : 0;
     if (gh) { g_hwnd_proc_seg[gh] = pseg; g_hwnd_proc_off[gh] = poff; }
     g_dlg_hwnd[d] = h;
@@ -408,8 +524,18 @@ void USER_DIALOGBOXPARAM(CPU *cpu) {
            the startup wizard forward (0x7D4 is its "Next"). Off by default. */
         const char *forced = getenv("CATZ_DLG_RESULT");
         if (forced) {
+            /* Comma-separated: one answer per dialog shown, in order; the last
+               value repeats. Enough to script a walk through the wizard. */
+            static int seen = 0;
+            const char *q = forced;
+            for (int k = 0; k < seen; k++) {
+                const char *c = strchr(q, (int)44);
+                if (!c) break;
+                q = c + 1;
+            }
+            seen++;
             g_dlg_ended[d] = 1;
-            g_dlg_result[d] = (uint16_t)strtoul(forced, NULL, 0);
+            g_dlg_result[d] = (uint16_t)strtoul(q, NULL, 0);
             fprintf(stderr, "[win32] dialog %u auto-answered %u\n",
                     tmpl, g_dlg_result[d]);
         }
