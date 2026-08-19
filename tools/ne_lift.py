@@ -608,11 +608,18 @@ class NELifter(Lifter):
             self._emit(f'/* fldcw - load FPU control word */', orig)
         elif op == 'fstcw' or op == 'fnstcw':
             self._emit(f'/* fstcw - store FPU control word */', orig)
-        elif op == 'fstsw':
+        elif op == 'fstsw' or op == 'fnstsw':
             if 'ax' in operand_str:
                 self._emit(f'cpu->ax = cpu->fpu_status;', orig)
             else:
-                self._emit(f'/* fstsw {operand_str} */', orig)
+                # `fstsw m16` was emitted as a bare comment, so the status word
+                # never reached memory. Borland's x87 compare idiom is
+                #   fcomp ...; fstsw [bp-N]; mov ax,[bp-N]; sahf; jbe
+                # so the following `mov ax` read a stale stack local and EVERY
+                # float comparison in the engine branched on garbage -- which is
+                # what put the pet's geometry (and so its screen position) wrong.
+                seg, off = self._fpu_mem_expr(inst, operand_str)
+                self._emit(f'mem_write16(cpu, {seg}, {off}, cpu->fpu_status);', orig)
         elif op == 'fdecstp':
             self._emit(f'cpu->fpu_top = (cpu->fpu_top - 1) & 7;', orig)
         elif op == 'fincstp':

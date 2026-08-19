@@ -312,6 +312,14 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
             if raw[0] in (0x26, 0x2E, 0x36, 0x3E):
                 seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[0]]
                 skip = 1
+            # An FWAIT prefix sits in front of the ESC opcode (IDA folds it into
+            # the x87 instruction); step over it or the re-decode below misses
+            # the opcode entirely and the instruction stays an unlifted esc_N.
+            if skip < len(raw) and raw[skip] == 0x9B:
+                skip += 1
+                if raw[skip - 1 + 1:skip + 1] and raw[skip] in (0x26, 0x2E, 0x36, 0x3E):
+                    seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[skip]]
+                    skip += 1
             if skip < len(raw) - 1 and 0xD8 <= raw[skip] <= 0xDF:
                 opcode = raw[skip]
                 modrm = raw[skip + 1]
