@@ -295,73 +295,81 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
     else:
         instructions = decoder.decode_all()
 
-    # Post-process: enhance FPU instructions with proper mnemonics
-    # The base decoder's ESC handler reads ModR/M to advance position but
-    # doesn't store the result. We re-decode it here from raw bytes.
-    EA_BASES = [
-        ('bx', 'si'), ('bx', 'di'), ('bp', 'si'), ('bp', 'di'),
-        ('si', ''),   ('di', ''),   ('bp', ''),   ('bx', ''),
-    ]
-    EA_DEFAULT_SEG = ['ds', 'ds', 'ss', 'ss', 'ds', 'ds', 'ss', 'ds']
+    def _fpu_fixup(instructions):
+        """Re-decode ESC opcodes into real x87 mnemonics.
 
-    for inst in instructions:
-        if inst.mnemonic.startswith('esc_') or inst.mnemonic.startswith('fpu_'):
-            raw = inst.raw
-            skip = 0
-            seg_override = ''
-            if raw[0] in (0x26, 0x2E, 0x36, 0x3E):
-                seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[0]]
-                skip = 1
-            # An FWAIT prefix sits in front of the ESC opcode (IDA folds it into
-            # the x87 instruction); step over it or the re-decode below misses
-            # the opcode entirely and the instruction stays an unlifted esc_N.
-            if skip < len(raw) and raw[skip] == 0x9B:
-                skip += 1
-                if raw[skip - 1 + 1:skip + 1] and raw[skip] in (0x26, 0x2E, 0x36, 0x3E):
-                    seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[skip]]
+        Must run again after recover(): that appends instructions later, and
+        anything it adds would otherwise keep its raw esc_N mnemonic and be
+        dropped by the lifter -- 97 x87 instructions were being lost that way."""
+        # Post-process: enhance FPU instructions with proper mnemonics
+        # The base decoder's ESC handler reads ModR/M to advance position but
+        # doesn't store the result. We re-decode it here from raw bytes.
+        EA_BASES = [
+            ('bx', 'si'), ('bx', 'di'), ('bp', 'si'), ('bp', 'di'),
+            ('si', ''),   ('di', ''),   ('bp', ''),   ('bx', ''),
+        ]
+        EA_DEFAULT_SEG = ['ds', 'ds', 'ss', 'ss', 'ds', 'ds', 'ss', 'ds']
+
+        for inst in instructions:
+            if inst.mnemonic.startswith('esc_') or inst.mnemonic.startswith('fpu_'):
+                raw = inst.raw
+                skip = 0
+                seg_override = ''
+                if raw[0] in (0x26, 0x2E, 0x36, 0x3E):
+                    seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[0]]
+                    skip = 1
+                # An FWAIT prefix sits in front of the ESC opcode (IDA folds it into
+                # the x87 instruction); step over it or the re-decode below misses
+                # the opcode entirely and the instruction stays an unlifted esc_N.
+                if skip < len(raw) and raw[skip] == 0x9B:
                     skip += 1
-            if skip < len(raw) - 1 and 0xD8 <= raw[skip] <= 0xDF:
-                opcode = raw[skip]
-                modrm = raw[skip + 1]
-                mod = (modrm >> 6) & 3
-                reg = (modrm >> 3) & 7
-                rm = modrm & 7
+                    if raw[skip - 1 + 1:skip + 1] and raw[skip] in (0x26, 0x2E, 0x36, 0x3E):
+                        seg_override = {0x26: 'es', 0x2E: 'cs', 0x36: 'ss', 0x3E: 'ds'}[raw[skip]]
+                        skip += 1
+                if skip < len(raw) - 1 and 0xD8 <= raw[skip] <= 0xDF:
+                    opcode = raw[skip]
+                    modrm = raw[skip + 1]
+                    mod = (modrm >> 6) & 3
+                    reg = (modrm >> 3) & 7
+                    rm = modrm & 7
 
-                # Re-decode ModR/M to build memory operand for the lifter
-                mem_op = None
-                if mod != 3:  # Memory operand
-                    base_r, idx_r = EA_BASES[rm]
-                    disp = 0
-                    seg_name = seg_override
+                    # Re-decode ModR/M to build memory operand for the lifter
+                    mem_op = None
+                    if mod != 3:  # Memory operand
+                        base_r, idx_r = EA_BASES[rm]
+                        disp = 0
+                        seg_name = seg_override
 
-                    if mod == 0 and rm == 6:
-                        # Direct address [disp16]
-                        disp = int.from_bytes(raw[skip+2:skip+4], 'little', signed=True)
-                        base_r = ''
-                        idx_r = ''
-                        if not seg_name: seg_name = 'ds'
-                    elif mod == 1:
-                        disp = raw[skip+2] if raw[skip+2] < 128 else raw[skip+2] - 256
-                    elif mod == 2:
-                        disp = int.from_bytes(raw[skip+2:skip+4], 'little', signed=True)
+                        if mod == 0 and rm == 6:
+                            # Direct address [disp16]
+                            disp = int.from_bytes(raw[skip+2:skip+4], 'little', signed=True)
+                            base_r = ''
+                            idx_r = ''
+                            if not seg_name: seg_name = 'ds'
+                        elif mod == 1:
+                            disp = raw[skip+2] if raw[skip+2] < 128 else raw[skip+2] - 256
+                        elif mod == 2:
+                            disp = int.from_bytes(raw[skip+2:skip+4], 'little', signed=True)
 
-                    if not seg_name:
-                        seg_name = EA_DEFAULT_SEG[rm] if not (mod == 0 and rm == 6) else 'ds'
+                        if not seg_name:
+                            seg_name = EA_DEFAULT_SEG[rm] if not (mod == 0 and rm == 6) else 'ds'
 
-                    mem_op = Operand(
-                        type=OpType.MEM,
-                        base=base_r,
-                        index=idx_r,
-                        disp=disp,
-                        seg=seg_name,
-                        size=2,  # Size doesn't matter for FPU; lifter uses operand_str
-                    )
+                        mem_op = Operand(
+                            type=OpType.MEM,
+                            base=base_r,
+                            index=idx_r,
+                            disp=disp,
+                            seg=seg_name,
+                            size=2,  # Size doesn't matter for FPU; lifter uses operand_str
+                        )
 
-                mem_str = repr(mem_op) if mem_op else ''
-                fpu = decode_fpu(opcode, modrm, mod, reg, rm, mem_str)
-                inst.mnemonic = format_fpu(fpu)
-                inst.op1 = mem_op  # Set to decoded memory operand or None for register ops
-                inst.op2 = None
+                    mem_str = repr(mem_op) if mem_op else ''
+                    fpu = decode_fpu(opcode, modrm, mod, reg, rm, mem_str)
+                    inst.mnemonic = format_fpu(fpu)
+                    inst.op1 = mem_op  # Set to decoded memory operand or None for register ops
+                    inst.op2 = None
+
+    _fpu_fixup(instructions)
 
     forced_entries = set(collect_internal_code_targets(ne).get(seg.index, set()))
     if seg_ida and seg_ida.get('functions'):
@@ -403,6 +411,7 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
 
     have = {i.offset - seg.file_offset for i in instructions}
     recover(forced_entries, have)
+    _fpu_fixup(instructions)   # recover() may have added more ESC opcodes
     instructions.sort(key=lambda i: i.offset)
 
     functions = detect_functions(seg, instructions, forced_entries)
