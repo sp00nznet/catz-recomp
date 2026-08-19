@@ -171,51 +171,61 @@ to work it out from the wizard.
 
 ### Where the pet's missing rect comes from (traced, not yet fixed)
 
-The pet is rendered every frame and clipped away. The whole chain, each step
-verified by measurement (write watchpoints and printed values), innermost first:
+The pet is rendered every frame and clipped away. Chain, each step verified by
+watchpoint or printed value, innermost first:
 
 1. `XBallz::DisplayBallzFrame` gets a clip rect of `(-9429,0)-(10050,-9193)`.
    Bottom above top, so it is empty and no ball is plotted. Measured: 82,944
    writes of the clear colour into the pet's 288x288 surface, ZERO of any other
    value.
-2. That rect lives at the draw-port object `+0x96`; `seg007_20F8` memcpy's it
-   (8 bytes) from the same object's `+0x124`.
-3. `+0x124` is written field by field by `XApt::MoveDrawRect` (`seg002:216A`),
-   which stores what it is handed. It is already wrong on arrival.
-4. Its caller is `ScriptSprite::PopScript` (`seg041`), which passes a local rect
-   at `ss:[bp-0x26]`.
-5. `XBallz::MoveFrameRect` (`seg47:1E64`) is called on that local -- and does not
-   change it. Printed before and after: identical, garbage both times.
-6. The local is filled from the sprite's own stored rect, reached through a far
-   pointer at object `+0x242`. That stored rect is itself inverted:
-   `(5714, 45, 0, 42)` -- left 5714, right 0.
-7. It is written exactly twice, both during init, by `seg047_1702` (inside
-   XBallz setup), reached via `seg034_1327 -> seg016_0F7F -> seg040_0DF0 ->
-   seg047_11D1`.
+2. The rect lives at the draw-port object `+0x96`; `seg007_20F8` memcpy's it
+   from the same object's `+0x124`.
+3. `+0x124` is written by `XApt::MoveDrawRect` (`seg002:216A`), which stores what
+   it is handed; it is already wrong on arrival.
+4. Its caller is `ScriptSprite::PopScript` (`seg041`), passing a local rect at
+   `ss:[bp-0x26]`.
+5. That local is produced by a virtual call on the object at ScriptSprite
+   `+0x242` -- vtable slot `+0x30`, which resolves to
+   **`XBallz::MoveFrameRectBall`** (`seg47:212D`). Printed across that call:
 
-So the pet's frame rect is built wrong once at initialisation and never
-recomputed; everything after that faithfully propagates it.
+       in  (2107,9765,-1468,-9425)  ->  out (-28871,21018,-3516,23089)
 
-What this rules out, so it is not re-checked:
+   Its input rect is ALREADY inverted, so this is propagation, not the origin.
+6. `XBallz::MoveFrameRect` (`seg47:1E64`) is innocent -- printed immediately
+   before and after, the rect is byte-identical.
 
-- `MoveDrawRect`, `MoveFrameRect` and the rect plumbing are fine -- sane rects
-  travel the same path in the same run: `(306,156,334,184)`, `(0,0,167,333)`,
-  `(4,39,163,109)`.
-- The `XApt::ESpace` argument is not the discriminator; sane and garbage rects
-  both arrive with space 0.
-- No systemic lifter gap remains to blame. There are no dropped instructions, no
-  `esc_N` left unlifted, no 32-bit addressing the lifter mishandles, and the 11
-  remaining `???` x87 decodes are data-in-code misreads
-  (`00 00 FF FF 00 00 DA FF`), not real instructions.
+The most useful clue is that the FIRST rect in a run is sane -- `(306,156,334,184)`,
+a plausible 28x28 -- and later ones are not. MoveFrameRectBall moves a rect by the
+delta between two BallStates, so the rect looks like it diverges frame over frame
+as those deltas go wrong, rather than being born wrong.
 
-Two things worth knowing before picking this up:
+Corrections to an earlier version of this section, so the wrong trail is not
+followed: ScriptSprite `+0x242` is a POINTER TO AN OBJECT (its first words are a
+vtable pointer), not a stored rect. Reading it as a rect gave `(5714,45,0,42)`
+and led to blaming `seg047_1702`, which is actually an allocation path. That was
+wrong.
 
-- These measurements come from the **Adoption Kit**, reached by auto-answering
-  the welcome dialog with `CATZ_DLG_RESULT=2001`. Clicking through adoption to
-  the real playpen may exercise a different path and is worth trying first.
-- `CATZ_DUMP_BLIT=snapN` (with `CATZ_DUMP_DIR`) dumps every live WinG surface at
-  one instant with a distinct-value count. The count is the useful part: a
-  uniform fill and real artwork both report "all bytes nonzero".
+Ruled out, so it is not re-checked:
+
+- The rect plumbing is sound. Sane rects travel the identical path in the same
+  run: `(306,156,334,184)`, `(0,0,167,333)`, `(4,39,163,109)`.
+- `XApt::ESpace` is not the discriminator; sane and garbage rects both arrive
+  with space 0.
+- No systemic lifter gap remains to blame: no dropped instructions, no `esc_N`
+  unlifted, no 32-bit addressing mishandled, and the 11 remaining `???` x87
+  decodes are data-in-code misreads (`00 00 FF FF 00 00 DA FF`).
+
+Next step, and the reason this stopped here: the question is now what the
+BallState deltas are SUPPOSED to be, which needs the ball-frame data model rather
+than another pointer chase. The sibling `catzng` project already parses the same
+LNZ/BDT files and knows the expected ball geometry -- checking the engine's ball
+positions against it would give ground truth instead of inference. Also worth
+trying first: these measurements are all from the Adoption Kit
+(`CATZ_DLG_RESULT=2001`); the real playpen may not be broken the same way.
+
+`CATZ_DUMP_BLIT=snapN` (with `CATZ_DUMP_DIR`) dumps every live WinG surface at
+one instant with a distinct-value count. The count is the useful part: a uniform
+fill and real artwork both report "all bytes nonzero".
 
 ### Build notes that are easy to lose
 
