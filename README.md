@@ -149,6 +149,26 @@ blocked progress:
    exists as type 0x7F04 and had none, so `FindResource` returned 0 and the
    engine threw.
 
+### You must supply your own serial number
+
+Catz (1996) asks for a serial number on first run, and this project ships
+neither one nor any way around one. It is licence data belonging to your copy of
+the game, exactly like the game files themselves, so it lives with your install
+and never in this repository.
+
+Take the serial from your own copy and put it where the game already looks for
+it -- `catz.ini` in the install root (`CATZ_DATA_DIR`, the tree containing
+`PTZFILES`), which is gitignored:
+
+```ini
+[Catz]
+Serial Number=XXXX-XXXX-XXXX
+```
+
+Without it the engine stops on its registration screen (dialog 613) and the
+playpen is never reached. The runtime says so on startup rather than leaving you
+to work it out from the wizard.
+
 ### Build notes that are easy to lose
 
 - **`-O2` is required for correctness.** The lifter turns intra-segment jumps

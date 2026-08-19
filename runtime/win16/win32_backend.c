@@ -75,6 +75,9 @@ static uint16_t g_hwnd_proc_seg[MAXH], g_hwnd_proc_off[MAXH];
 /* Last class registered; the fallback for a window whose class we never saw. */
 static uint16_t g_wndproc_seg = 0, g_wndproc_off = 0;
 
+/* The first window created is the application frame; only it ends the app. */
+static HWND g_main_hwnd;
+
 static GuestClass *cls_find(const char *name) {
     for (int i = 0; i < g_ncls; i++)
         if (!strcmp(g_cls[i].name, name)) return &g_cls[i];
@@ -150,9 +153,13 @@ static int forward_to_guest(UINT msg) {
 }
 
 static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    /* Only the application's own frame ends the app. Quitting on any window's
+       WM_DESTROY meant closing a modal dialog tore down the whole program --
+       which is exactly what happened the first time a valid serial let the
+       wizard actually finish a dialog. */
     if (msg == WM_DESTROY) {
-        fprintf(stderr, "[win32] WM_DESTROY on %p\n", (void *)hWnd);
-        PostQuitMessage(0); return 0;
+        if (hWnd == g_main_hwnd) { PostQuitMessage(0); return 0; }
+        return 0;
     }
     uint16_t pseg, poff;
     hwnd_proc(hWnd, &pseg, &poff);
@@ -237,13 +244,14 @@ void USER_CREATEWINDOW(CPU *cpu) {
     HWND hw = CreateWindowExA(0, hostcls, title, (DWORD)style, x, y, w, h,
                               parent, NULL, GetModuleHandle(NULL), NULL);
     uint16_t gh = hw ? put_hwnd(hw) : 0;
+    if (hw && !g_main_hwnd) g_main_hwnd = hw;
     if (gh) {
         g_hwnd_proc_seg[gh] = c ? c->seg : g_wndproc_seg;
         g_hwnd_proc_off[gh] = c ? c->off : g_wndproc_off;
     }
-    fprintf(stderr, "[win32] CreateWindow(\"%s\" style=%08lX %dx%d parent=%p) "
+    fprintf(stderr, "[win32] CreateWindow(\"%s\" title=\"%s\" style=%08lX %dx%d parent=%p) "
                     "-> real=%p guest=%u proc=seg%u:%04X err=%lu\n",
-            cname, (unsigned long)style, w, h, (void *)parent, (void *)hw, gh,
+            cname, title, (unsigned long)style, w, h, (void *)parent, (void *)hw, gh,
             gh ? g_hwnd_proc_seg[gh] : 0, gh ? g_hwnd_proc_off[gh] : 0,
             hw ? 0UL : (unsigned long)GetLastError());
     cpu->ax = gh;

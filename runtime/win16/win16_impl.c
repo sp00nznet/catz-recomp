@@ -784,6 +784,23 @@ void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
     for (DWORD i = 0; i < n; i++) mem_write8(cpu, rsseg, (uint16_t)(rsoff + i), (uint8_t)val[i]);
     if (nsize) mem_write8(cpu, rsseg, (uint16_t)(rsoff + n), 0);
 
+    /* The serial number is licence data and is NOT shipped with this project:
+       it must come from the user's own copy. Say so once, plainly, instead of
+       letting the engine drop into its registration wizard with no explanation. */
+    if (!n && !strcmp(key, "Serial Number")) {
+        static int said = 0;
+        if (!said++)
+            fprintf(stderr,
+                "[catz] No serial number found. Catz (1996) asks for one at first run.\n"
+                "[catz] Supply your own, from your own copy of the game, by creating\n"
+                "[catz]   %s/catz.ini\n"
+                "[catz] containing:\n"
+                "[catz]   [Catz]\n"
+                "[catz]   Serial Number=XXXX-XXXX-XXXX\n"
+                "[catz] Without it the engine stops on its registration screen.\n",
+                CATZ_DATA_DIR);
+    }
+
     fprintf(stderr, "[ini] GetPrivateProfileString(%s, [%s] %s, def=\"%s\") -> \"%s\"\n",
             file, app, key, def, n ? val : "");
     cpu->ax = (uint16_t)n;
