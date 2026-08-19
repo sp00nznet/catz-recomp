@@ -268,6 +268,22 @@ void USER_CREATEWINDOW(CPU *cpu) {
     b_ret(cpu, 30);
 }
 
+/* Both of these were stubs, so nothing could ever close: the engine's WM_CLOSE
+ * handler called DestroyWindow, it did nothing, and the window stayed up. */
+void USER_DESTROYWINDOW(CPU *cpu) {
+    uint16_t g = b_a16(cpu, 0);
+    HWND h = get_hwnd(g);
+    if (h) { DestroyWindow(h); if (g < MAXH) g_hwnd[g] = NULL; }
+    cpu->ax = 1;
+    b_ret(cpu, 2);
+}
+
+void USER_POSTQUITMESSAGE(CPU *cpu) {
+    PostQuitMessage((int)(int16_t)b_a16(cpu, 0));
+    cpu->ax = 0;
+    b_ret(cpu, 2);
+}
+
 void USER_SHOWWINDOW(CPU *cpu) {
     HWND h = get_hwnd(b_a16(cpu, 2));
     if (h) ShowWindow(h, SW_SHOW);

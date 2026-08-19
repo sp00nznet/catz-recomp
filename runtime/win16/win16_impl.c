@@ -272,6 +272,111 @@ void WING_WINGRECOMMENDDIBFORMAT(CPU *cpu) {/* WinGRecommendDIBFormat(BITMAPINFO
     ret(cpu, 4);
 }
 
+/* ===== palette =====
+ * The engine builds its logical palette by first asking the system for the
+ * current hardware palette, then handing the result to CreatePalette. Both were
+ * stubs, so the LOGPALETTE it created was entirely zero -- every colour black,
+ * which is what rendered the pet as a grey and black blob. It also leaves the
+ * colour table in the BITMAPINFO it passes to WinGCreateBitmap blank and relies
+ * on the realized palette instead, so that is the authoritative one here. */
+static uint8_t g_active_pal[256 * 4];       /* RGBQUAD order: B,G,R,0 */
+static int     g_have_pal;
+
+#define MAXPAL 16
+typedef struct { uint16_t h; uint8_t rgbq[256 * 4]; } GuestPalette;
+static GuestPalette g_pals[MAXPAL];
+static int g_npal;
+
+/* A modern desktop is not palettised and Win32's own GetSystemPaletteEntries
+ * returns nothing, so synthesise the classic 256-colour layout: 10 system
+ * colours, a 6x6x6 colour cube, 10 more system colours. */
+static void sys_palette_entry(unsigned i, uint8_t *r, uint8_t *g, uint8_t *b) {
+    static const uint8_t sys[20][3] = {
+        {0,0,0},{128,0,0},{0,128,0},{128,128,0},{0,0,128},{128,0,128},
+        {0,128,128},{192,192,192},{192,220,192},{166,202,240},
+        {255,251,240},{160,160,164},{128,128,128},{255,0,0},{0,255,0},
+        {255,255,0},{0,0,255},{255,0,255},{0,255,255},{255,255,255},
+    };
+    if (i < 10)   { *r = sys[i][0];     *g = sys[i][1];     *b = sys[i][2];     return; }
+    if (i >= 246) { *r = sys[i-236][0]; *g = sys[i-236][1]; *b = sys[i-236][2]; return; }
+    unsigned c = i - 10;
+    if (c < 216) {
+        static const uint8_t lv[6] = {0, 51, 102, 153, 204, 255};
+        *r = lv[(c / 36) % 6]; *g = lv[(c / 6) % 6]; *b = lv[c % 6];
+    } else {
+        uint8_t v = (uint8_t)(((c - 216) * 255) / 19);
+        *r = *g = *b = v;
+    }
+}
+
+void GDI_GETSYSTEMPALETTEENTRIES(CPU *cpu) { /* (hdc@8, iStart@6, n@4, lppe@0/2) */
+    uint16_t start = a16(cpu, 6), n = a16(cpu, 4);
+    uint16_t off = a16(cpu, 0), seg = a16(cpu, 2);
+    uint16_t got = 0;
+    if (seg) {
+        for (; got < n && (unsigned)(start + got) < 256; got++) {
+            uint8_t r, g, b;
+            sys_palette_entry((unsigned)(start + got), &r, &g, &b);
+            uint16_t e = (uint16_t)(off + got * 4);
+            mem_write8(cpu, seg, e, r);
+            mem_write8(cpu, seg, (uint16_t)(e + 1), g);
+            mem_write8(cpu, seg, (uint16_t)(e + 2), b);
+            mem_write8(cpu, seg, (uint16_t)(e + 3), 0);
+        }
+    }
+    cpu->ax = got;
+    ret(cpu, 10);
+}
+
+void GDI_GETSYSTEMPALETTEUSE(CPU *cpu) {     /* (hdc@0) -> SYSPAL_STATIC */
+    cpu->ax = 1;
+    ret(cpu, 2);
+}
+
+/* Win16 LOGPALETTE: palVersion@0(2) palNumEntries@2(2) then PALETTEENTRY[]
+ * {peRed, peGreen, peBlue, peFlags}. GDI wants RGBQUAD {B,G,R,0}. */
+void GDI_CREATEPALETTE(CPU *cpu) {           /* (lpLogPalette@0/2) */
+    uint16_t off = a16(cpu, 0), seg = a16(cpu, 2);
+    uint16_t handle = 0;
+    if (seg && g_npal < MAXPAL) {
+        unsigned n = mem_read16(cpu, seg, (uint16_t)(off + 2));
+        if (n > 256) n = 256;
+        GuestPalette *p = &g_pals[g_npal];
+        memset(p->rgbq, 0, sizeof p->rgbq);
+        for (unsigned c = 0; c < n; c++) {
+            uint16_t e = (uint16_t)(off + 4 + c * 4);
+            p->rgbq[c * 4 + 2] = mem_read8(cpu, seg, e);                   /* R */
+            p->rgbq[c * 4 + 1] = mem_read8(cpu, seg, (uint16_t)(e + 1));   /* G */
+            p->rgbq[c * 4 + 0] = mem_read8(cpu, seg, (uint16_t)(e + 2));   /* B */
+        }
+        handle = (uint16_t)(0x0E00 + (++g_npal));
+        p->h = handle;
+        /* Adopt the first one immediately so a surface created before any
+           SelectPalette still gets real colours. */
+        if (!g_have_pal) { memcpy(g_active_pal, p->rgbq, sizeof g_active_pal); g_have_pal = 1; }
+        IMPL_LOG("[win16] CreatePalette(%u entries) -> %04X\n", n, handle);
+    }
+    cpu->ax = handle;
+    ret(cpu, 4);
+}
+
+void USER_SELECTPALETTE(CPU *cpu) {          /* (hdc@4, hpal@2, bForceBkgd@0) */
+    uint16_t h = a16(cpu, 2);
+    for (int i = 0; i < g_npal; i++)
+        if (g_pals[i].h == h) {
+            memcpy(g_active_pal, g_pals[i].rgbq, sizeof g_active_pal);
+            g_have_pal = 1;
+            break;
+        }
+    cpu->ax = 0;
+    ret(cpu, 6);
+}
+
+void USER_REALIZEPALETTE(CPU *cpu) {         /* (hdc@0) */
+    cpu->ax = 0;
+    ret(cpu, 2);
+}
+
 void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,void**) */
     uint16_t ppoff = a16(cpu, 0), ppseg = a16(cpu, 2);   /* ppBits (void FAR* FAR*) */
     uint16_t hoff  = a16(cpu, 4), hseg  = a16(cpu, 6);   /* pHeader */
@@ -295,11 +400,20 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
          * BITMAPINFO — WinG has no SetDIBColorTable import, so this is the only
          * place the palette is handed to us. Without it the blit is grey mush. */
         if (bpp <= 8) {
-            unsigned n = 1u << bpp;
-            for (unsigned c = 0; c < n && c < 256; c++)
-                for (int b = 0; b < 4; b++)
-                    g_wing[i].pal[c * 4 + b] =
-                        mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4 + b));
+            /* Prefer the realized palette: the engine leaves this BITMAPINFO's
+               table blank and supplies its colours through CreatePalette.
+               Testing the caller's table for "empty" is not enough -- stale
+               bytes further into the buffer make it look populated while the
+               entries that matter are all black. */
+            if (g_have_pal) {
+                memcpy(g_wing[i].pal, g_active_pal, sizeof g_wing[i].pal);
+            } else {
+                unsigned n = 1u << bpp;
+                for (unsigned c = 0; c < n && c < 256; c++)
+                    for (int b = 0; b < 4; b++)
+                        g_wing[i].pal[c * 4 + b] =
+                            mem_read8(cpu, hseg, (uint16_t)(hoff + 40 + c * 4 + b));
+            }
         }
         g_wing_cur = i;                 /* newest bitmap is the active surface */
     }
