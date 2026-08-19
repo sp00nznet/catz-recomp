@@ -78,6 +78,64 @@ class NELifter(Lifter):
         """Get relocation annotation at a given local offset."""
         return self.reloc_map.get(local_off)
 
+    def _imm_start(self, inst, m, op1, op2):
+        """Byte offset of the instruction's immediate field, or None.
+
+        x86 puts the immediate last, so its position follows from the length.
+        This is what separates a relocation on the immediate from one on the
+        ModRM displacement -- they live in the same instruction and the lifter
+        used to take whichever it found first."""
+        immop = None
+        if op2 is not None and op2.type in (OpType.IMM8, OpType.IMM16):
+            immop = op2
+        elif op2 is None and op1 is not None and op1.type in (OpType.IMM8, OpType.IMM16):
+            immop = op1
+        if immop is None:
+            return None
+        local_off = inst.offset - self.seg.file_offset
+        return local_off + inst.length - (1 if immop.type == OpType.IMM8 else 2)
+
+    def _reloc_offset_value(self, r):
+        """OFFSET16 relocation -> the offset it resolves to, or None."""
+        if r.src_type != 5:
+            return None
+        tt = r.flags & 3
+        if tt == 0:
+            return r.target_off & 0xFFFF
+        mod = module_name(self.ne, r.module_idx)
+        xm = self.xmod.get(mod.upper())
+        if xm and r.ordinal in xm:
+            return xm[r.ordinal][1] & 0xFFFF
+        return None
+
+    def _resolve_mem_disp(self, inst, m, op1, op2):
+        """Apply a relocation sitting on a direct [disp16] memory operand.
+
+        `mov word ptr es:[<fixup>], 1` carries its fixup on the ADDRESS, not the
+        value. Lifting it as an immediate wrote the address into the variable and
+        left the access pointing at offset 0 -- so a flag written to one place was
+        read from another. Rewrite the operand's displacement instead and let the
+        normal path emit the access."""
+        local_off = inst.offset - self.seg.file_offset
+        imm_at = self._imm_start(inst, m, op1, op2)
+        for opnd in (op1, op2):
+            if opnd is None or opnd.type != OpType.MEM:
+                continue
+            if opnd.base or opnd.index:
+                continue                      # only a bare [disp16] can be fixed up
+            for off in range(local_off + 1, local_off + inst.length):
+                if imm_at is not None and off == imm_at:
+                    continue                  # that one belongs to the immediate
+                ann = self._get_reloc_at(off)
+                if not ann:
+                    continue
+                val = self._reloc_offset_value(ann.reloc)
+                if val is None:
+                    continue
+                opnd.disp = val
+                return True
+        return False
+
     def lift_instruction(self, inst: Instruction, func_start: int):
         """Override to handle FPU instructions and NE-specific features."""
         m = inst.mnemonic
@@ -88,6 +146,9 @@ class NELifter(Lifter):
 
         # Emit label if this address is a jump target
         self._emit_label(inst.address)
+
+        # A fixup on a direct memory displacement must land on the ADDRESS.
+        self._resolve_mem_disp(inst, m, op1, op2)
 
         # --- FWAIT / NOP are no-ops in our model ---
         # CATZ uses real x87 instructions (not inline FP-emulation trampolines
@@ -217,7 +278,10 @@ class NELifter(Lifter):
         if _reloc_imm:
             _put = ((lambda v: f'push16(cpu, {v});') if m == 'push'
                     else (lambda v: _write(op1, v)))
+            _imm_at = self._imm_start(inst, m, op1, op2)
             for off in range(local_off + 1, local_off + inst.length):
+                if _imm_at is not None and off != _imm_at:
+                    continue          # a displacement fixup, already applied above
                 ann = self._get_reloc_at(off)
                 if not ann:
                     continue

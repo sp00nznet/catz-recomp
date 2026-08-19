@@ -43,10 +43,16 @@ static uint16_t put_hwnd(HWND h) {
     return 0;
 }
 static HWND get_hwnd(uint16_t g) { return (g && g < MAXH) ? g_hwnd[g] : NULL; }
+/* Slots must be recycled: the engine takes a DC every frame, and a table that
+ * only ever grows ran out within seconds -- put_hdc then returned 0 and the
+ * engine reported "Closing already closed screen DC" for the rest of the run. */
 static uint16_t put_hdc(HDC h) {
+    if (!h) return 0;
+    for (int i = 1; i < g_nhdc; i++) if (!g_hdc[i]) { g_hdc[i] = h; return (uint16_t)i; }
     if (g_nhdc < MAXH) { g_hdc[g_nhdc] = h; return (uint16_t)g_nhdc++; }
     return 0;
 }
+static void free_hdc(uint16_t g) { if (g && g < MAXH) g_hdc[g] = NULL; }
 static HDC get_hdc(uint16_t g) { return (g && g < MAXH) ? g_hdc[g] : NULL; }
 
 /* GDI objects (bitmaps so far) get their own guest handle space. */
@@ -54,9 +60,13 @@ static HDC get_hdc(uint16_t g) { return (g && g < MAXH) ? g_hdc[g] : NULL; }
 static HGDIOBJ g_gdi[MAXGDI];
 static int g_ngdi = 1;
 static uint16_t put_hgdi(HGDIOBJ h) {
-    if (!h || g_ngdi >= MAXGDI) return 0;
+    if (!h) return 0;
+    for (int i = 1; i < g_ngdi; i++) if (!g_gdi[i]) { g_gdi[i] = h; return (uint16_t)i; }
+    if (g_ngdi >= MAXGDI) return 0;
     g_gdi[g_ngdi] = h; return (uint16_t)g_ngdi++;
 }
+
+static HGDIOBJ get_hgdi(uint16_t g) { return (g && g < MAXGDI) ? g_gdi[g] : NULL; }
 
 /* ---- guest window classes ----
  * One global WNDPROC was wrong: CATZ.WAD and CATZDLL each register their own
@@ -270,9 +280,102 @@ void USER_UPDATEWINDOW(CPU *cpu) {
     cpu->ax = 0; b_ret(cpu, 2);
 }
 
+/* ---- GDI objects ----
+ * These were stubs returning 0. The engine treats a null GDI handle as fatal:
+ * XDrawPort's brush creation throws "exception 2" at WDRAW.CPP:1935 the moment
+ * CreateSolidBrush comes back 0, which is where the first real frame died. */
+void GDI_CREATESOLIDBRUSH(CPU *cpu) {          /* (COLORREF@0) */
+    COLORREF c = (COLORREF)b_a32(cpu, 0);
+    cpu->ax = put_hgdi(CreateSolidBrush(c));
+    b_ret(cpu, 4);
+}
+
+void GDI_CREATEPEN(CPU *cpu) {                 /* (style@6, width@4, colour@0) */
+    int style = (int16_t)b_a16(cpu, 6);
+    int width = (int16_t)b_a16(cpu, 4);
+    COLORREF c = (COLORREF)b_a32(cpu, 0);
+    cpu->ax = put_hgdi(CreatePen(style, width, c));
+    b_ret(cpu, 8);
+}
+
+void GDI_GETSTOCKOBJECT(CPU *cpu) {            /* (index@0) */
+    cpu->ax = put_hgdi(GetStockObject((int)(int16_t)b_a16(cpu, 0)));
+    b_ret(cpu, 2);
+}
+
+void GDI_SELECTOBJECT(CPU *cpu) {              /* (hdc@2, hgdiobj@0) -> previous */
+    HDC dc = get_hdc(b_a16(cpu, 2));
+    HGDIOBJ o = get_hgdi(b_a16(cpu, 0));
+    HGDIOBJ prev = (dc && o) ? SelectObject(dc, o) : NULL;
+    cpu->ax = prev ? put_hgdi(prev) : 0;
+    b_ret(cpu, 4);
+}
+
+void GDI_DELETEOBJECT(CPU *cpu) {              /* (hgdiobj@0) */
+    uint16_t g = b_a16(cpu, 0);
+    HGDIOBJ o = get_hgdi(g);
+    if (o) { DeleteObject(o); g_gdi[g] = NULL; }
+    cpu->ax = 1;
+    b_ret(cpu, 2);
+}
+
+void GDI_CREATECOMPATIBLEDC(CPU *cpu) {        /* (hdc@0) */
+    HDC dc = get_hdc(b_a16(cpu, 0));
+    HDC mem = CreateCompatibleDC(dc);
+    cpu->ax = mem ? put_hdc(mem) : 0;
+    b_ret(cpu, 2);
+}
+
+void GDI_DELETEDC(CPU *cpu) {                  /* (hdc@0) */
+    uint16_t g = b_a16(cpu, 0);
+    HDC dc = get_hdc(g);
+    if (dc) DeleteDC(dc);
+    free_hdc(g);
+    cpu->ax = 1;
+    b_ret(cpu, 2);
+}
+
+void GDI_CREATECOMPATIBLEBITMAP(CPU *cpu) {    /* (hdc@4, w@2, h@0) */
+    HDC dc = get_hdc(b_a16(cpu, 4));
+    int w = (int16_t)b_a16(cpu, 2), h = (int16_t)b_a16(cpu, 0);
+    HBITMAP bm = dc ? CreateCompatibleBitmap(dc, w, h) : NULL;
+    cpu->ax = bm ? put_hgdi(bm) : 0;
+    b_ret(cpu, 6);
+}
+
+void GDI_PATBLT(CPU *cpu) {                    /* (hdc@12,x@10,y@8,w@6,h@4,rop@0) */
+    HDC dc = get_hdc(b_a16(cpu, 12));
+    int x = (int16_t)b_a16(cpu, 10), y = (int16_t)b_a16(cpu, 8);
+    int w = (int16_t)b_a16(cpu, 6), h = (int16_t)b_a16(cpu, 4);
+    DWORD rop = b_a32(cpu, 0);
+    cpu->ax = (uint16_t)(dc ? PatBlt(dc, x, y, w, h, rop) : 0);
+    b_ret(cpu, 14);
+}
+
+void USER_FILLRECT(CPU *cpu) {                 /* (hdc@6, lpRect@2/4, hbr@0) */
+    HDC dc = get_hdc(b_a16(cpu, 6));
+    uint16_t roff = b_a16(cpu, 2), rseg = b_a16(cpu, 4);
+    HBRUSH br = (HBRUSH)get_hgdi(b_a16(cpu, 0));
+    if (dc && rseg && br) {
+        RECT r;
+        r.left   = (int16_t)mem_read16(cpu, rseg, roff);
+        r.top    = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 2));
+        r.right  = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 4));
+        r.bottom = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 6));
+        FillRect(dc, &r, br);
+    }
+    cpu->ax = 1;
+    b_ret(cpu, 8);
+}
+
 void USER_GETDC(CPU *cpu) {
-    HWND h = get_hwnd(b_a16(cpu, 0));
-    HDC dc = h ? GetDC(h) : NULL;
+    uint16_t gw = b_a16(cpu, 0);
+    HWND h = get_hwnd(gw);
+    /* GetDC(NULL) is the SCREEN dc, not an error -- and it is what the engine
+     * asks for: Petz draw onto the desktop. Rejecting it left
+     * XDrawPort::OpenScreenDrawPort with no DC, so every frame drew its sprites
+     * and then reported "Closing already closed screen DC" instead of blitting. */
+    HDC dc = GetDC(h);
     cpu->ax = dc ? put_hdc(dc) : 0;
     b_ret(cpu, 2);
 }
@@ -655,6 +758,7 @@ void USER_ENDPAINT(CPU *cpu) {
         ps.rcPaint.bottom = (int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 10));
     }
     if (h) EndPaint(h, &ps);
+    if (pseg) free_hdc(mem_read16(cpu, pseg, poff));
     cpu->ax = 1;
     b_ret(cpu, 6);
 }
@@ -664,6 +768,7 @@ void USER_RELEASEDC(CPU *cpu) {
     HWND h = get_hwnd(b_a16(cpu, 2));
     HDC dc = get_hdc(gdc);
     if (h && dc) ReleaseDC(h, dc);
+    free_hdc(gdc);
     cpu->ax = 1; b_ret(cpu, 4);
 }
 

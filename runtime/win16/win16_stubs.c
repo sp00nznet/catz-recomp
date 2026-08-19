@@ -32,15 +32,9 @@ void CTL3DV2_CTL3DUNREGISTER(CPU *cpu) { (void)cpu; WIN16_LOG("CTL3DUNREGISTER")
 
 /* ===== GDI ===== */
 void GDI_BITBLT(CPU *cpu) { (void)cpu; WIN16_LOG("BITBLT"); cpu->ax = 0; cpu->sp += 4 + 20; }
-void GDI_CREATECOMPATIBLEBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("CREATECOMPATIBLEBITMAP"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void GDI_CREATECOMPATIBLEDC(CPU *cpu) { (void)cpu; WIN16_LOG("CREATECOMPATIBLEDC"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void GDI_CREATEDIBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIBITMAP"); cpu->ax = 0; cpu->sp += 4 + 20; }
 void GDI_CREATEFONTINDIRECT(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEFONTINDIRECT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_CREATEPALETTE(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEPALETTE"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void GDI_CREATEPEN(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEPEN"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void GDI_CREATESOLIDBRUSH(CPU *cpu) { (void)cpu; WIN16_LOG("CREATESOLIDBRUSH"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void GDI_DELETEDC(CPU *cpu) { (void)cpu; WIN16_LOG("DELETEDC"); cpu->ax = 0; cpu->sp += 4 + 2; }
-void GDI_DELETEOBJECT(CPU *cpu) { (void)cpu; WIN16_LOG("DELETEOBJECT"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void GDI_ELLIPSE(CPU *cpu) { (void)cpu; WIN16_LOG("ELLIPSE"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void GDI_GETDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("GETDIBITS"); cpu->ax = 0; cpu->sp += 4 + 18; }
 void GDI_GETOBJECT(CPU *cpu) { (void)cpu; WIN16_LOG("GETOBJECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
@@ -49,10 +43,8 @@ void GDI_GETSYSTEMPALETTEUSE(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSTEMPALETTEU
 void GDI_GETTEXTEXTENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETTEXTEXTENT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void GDI_LINETO(CPU *cpu) { (void)cpu; WIN16_LOG("LINETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_MOVETO(CPU *cpu) { (void)cpu; WIN16_LOG("MOVETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void GDI_PATBLT(CPU *cpu) { (void)cpu; WIN16_LOG("PATBLT"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void GDI_POLYGON(CPU *cpu) { (void)cpu; WIN16_LOG("POLYGON"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void GDI_RECTANGLE(CPU *cpu) { (void)cpu; WIN16_LOG("RECTANGLE"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void GDI_SELECTOBJECT(CPU *cpu) { (void)cpu; WIN16_LOG("SELECTOBJECT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_SETBKCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKCOLOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_SETBKMODE(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKMODE"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_SETDIBITSTODEVICE(CPU *cpu) { (void)cpu; WIN16_LOG("SETDIBITSTODEVICE"); cpu->ax = 0; cpu->sp += 4 + 28; }
@@ -133,7 +125,6 @@ void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; 
 void USER_DRAWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("DRAWTEXT"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ENABLEWINDOW"); }
 void USER_ENUMWINDOWS(CPU *cpu) { (void)cpu; WIN16_LOG("ENUMWINDOWS"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_FILLRECT(CPU *cpu) { (void)cpu; WIN16_LOG("FILLRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_FRAMERECT(CPU *cpu) { (void)cpu; WIN16_LOG("FRAMERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETACTIVEWINDOW"); }
 void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE"); cpu->ax = 0; cpu->sp += 4 + 2; }

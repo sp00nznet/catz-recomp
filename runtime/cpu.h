@@ -138,6 +138,9 @@ void catz_unreachable(const char *seg, unsigned off);
 void catz_bp_broke(const char *callee, uint16_t bp0, uint16_t bp1, uint16_t sp0, uint16_t sp1);
 void catz_ds_broke(const char *callee, uint16_t ds0, uint16_t ds1);
 void catz_sp_broke(const char *callee, uint16_t sp0, uint16_t sp1);
+/* A guest divide by zero would #DE on real hardware; the host must not die
+   silently instead. Guarded in the lifted code, reported once per kind here. */
+void catz_div0(const char *kind);
 
 /* Where the current run of ds==0 began (main.c); always available. */
 extern const char *g_ds_zero_from;

@@ -174,6 +174,15 @@ static LONG CALLBACK stack_overflow_veh(EXCEPTION_POINTERS *ep)
 /* sp on return from a call must be the pre-call sp plus the callee's purge.
    Below it means leaked guest stack; far above it means the callee unwound
    a frame it did not own. Either way the 64 KB guest stack is being eaten. */
+void catz_div0(const char *kind)
+{
+    static int fired = 0;
+    if (fired++ >= 6) return;
+    fprintf(stderr, "[DIV0] guest %s by zero; registers left unchanged\n", kind);
+    if (fired == 1) { dump_fn_ring(24); if (g_cpu) dump_guest_stack(g_cpu, 24); }
+    fflush(stderr);
+}
+
 void catz_sp_broke(const char *callee, uint16_t sp0, uint16_t sp1)
 {
     static int fired = 0;

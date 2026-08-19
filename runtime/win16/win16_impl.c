@@ -566,7 +566,6 @@ void GDI_GETDEVICECAPS(CPU *cpu) {         /* HDC@2, index@0 */
     cpu->ax = (uint16_t)v; ret(cpu, 4);
 }
 void GDI_CREATEIC(CPU *cpu)         { cpu->ax = FAKE_HDC; ret(cpu, 16); }
-void GDI_GETSTOCKOBJECT(CPU *cpu)   { cpu->ax = FAKE_HANDLE; ret(cpu, 2); }
 
 void CTL3DV2_CTL3DREGISTER(CPU *cpu)       { cpu->ax = 1; ret(cpu, 2); }
 void CTL3DV2_CTL3DAUTOSUBCLASS(CPU *cpu)   { cpu->ax = 1; ret(cpu, 2); }
