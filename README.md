@@ -75,97 +75,64 @@ cmake -B build -A Win32       # 16-bit origin → 32-bit native target
 cmake --build build
 ```
 
-## Status (2026-08): constructs the pet from its real assets; dies in sqrt
+## Status (2026-08): the engine runs; not yet drawing
 
-Current run: image load → CATZDLL `LibMain` → CATZ.WAD `WinMain` → real Win32
-window + WndProc bridge → CATZREZX (327 resources) → reads its whole
-configuration (`LASTCAT.INI → catz0.cat`) → loads the playpen bitmap → **loads
-the pet**: `Apersian.lnz`, `kpersian.lnz` (breed files), `cat.bhd` (animation
-index), `cat.scp` (behaviour script), `cat0.bdt` (animation frames) → then
-`MessageBox "sqrt: DOMAIN error"`. Reproduce with `build/catz.exe`.
+`build/catz.exe` boots CATZDLL + CATZ.WAD, creates a real Win32 window, and runs
+a live frame loop. It has to be killed; it no longer terminates on its own.
 
-**Not yet rendering and not yet pumping messages.** `WinGStretchBlt` is now a
-real `StretchDIBits` from the WinG surface, but it has never executed — init
-still dies first, just much later.
+What it does now: reads its configuration, loads the playpen bitmap, loads the
+pet from real assets (`Apersian.lnz`, `kpersian.lnz`, `cat.bhd`, `cat.scp`,
+`cat0.bdt`, `cat67.bdt`), loads the toys and playscene (`cloud.scp`,
+`cloud0.bdt`, `mouse2.bdt`), streams further animation frames on demand
+(`cat3.bdt`, `cat26.bdt`), creates real WinG offscreen surfaces (1024x640,
+640x480, 168x333), and drives its behaviour state machine through real states --
+`eKatGS_idling`, `eKatState_preExplore`, `eKatState_moment`,
+`eKatState_locomote`, `eKatGS_adoptionKit`, `eMouseGS_inMouseHole` -- on a 10 ms
+timer, posting `WM_CATZ_WINTERFACE` (0x083B) to its window each tick.
 
-### Next: the `sqrt` domain error (measured, not yet fixed)
+### What is still wrong
 
-`seg036_3C86` computes a vector length as `sqrt(x*x + y*y + z*z)`: three
-`movsx`/`imul` pairs into `eax`, stored to `[bp-0x60]`, then `fild dword` →
-`fstp qword` → the RTL `sqrt` (`seg001_134A`). Reached via
-`seg063_1439 → seg034_1327 → seg016_1291 → seg047_2CFC → seg047_26ED →
-seg047_44C9 → seg047_3C8E → seg036_01BB → seg036_3C86`.
+1. **Nothing is drawn.** `WinGStretchBlt` has still never executed. The frame
+   loop turns and the surfaces exist, so the remaining gap is between the
+   engine's per-frame work and the blit. Per-frame shim tracing
+   (`-DCATZ_TRACE_WIN16`) is the tool: it currently shows the tick reaching
+   `DIALOGBOXPARAM`, still a stub -- the state machine enters
+   `eKatGS_adoptionKit`, which in the real game is the first-run Adoption Kit
+   modal. Setting `Adoption=0` in `catz0.cat` does NOT unblock the blit, so the
+   dialog is not the only thing in the way.
+2. **Coordinates are wrong.** The engine reports `Cat is at -770,-12513` and
+   `Cloud sprite is -479 -10300 1599 20941`, then `Moment off screen, returning
+   to center`. The Y magnitudes look like a fixed-point scale error still
+   surviving somewhere in the geometry.
+3. `DIALOGBOXPARAM`, `CREATEDIALOG`, `CREATEPALETTE`, `GETOBJECT`, `SENDMESSAGE`
+   and `GETASYNCKEYSTATE` are still stubs.
 
-Instrumenting the operand gives:
+### Lifter bugs fixed this round (each was silent, each was systemic)
 
-```
-[SUMSQ] x=-18385 y=-17153 z=-7773  sum=692653163
-[SUMSQ] x=-17754 y=-21399 z=30464  sum=1701177013
-...
-[SUMSQ] x=32361  y=-23773 z=-32333 sum=-1637154557   <- int32 overflow
-```
+Four defects, found by measurement rather than reading, in the order they
+blocked progress:
 
-The overflow is the symptom: 32361² + 23773² + 32333² = 2,657,812,739, which
-does not fit in `int32`, so `fild` reads it back negative. **The bug is the
-inputs.** These are ball coordinates for a cat skeleton — they should be tens to
-hundreds, not the full ±32767 range. Every sample is garbage-scaled, including
-the ones that happen not to overflow, so this is not an edge case reached after
-good frames.
-
-`x`/`y`/`z` (`[bp-0x36]`, `[bp-0x34]`, `[bp-0x32]`) are built in the same
-function by 16-bit `imul`s over `[bp-0x30]`, `[bp-0x2C]`, `[bp-0x2E]` and
-`[bp-0x26]`, `[bp-0x28]`, `[bp-0x2A]` — a fixed-point rotation applied to a
-position. So chase the source of those two operand groups: the run has just
-opened `cat0.bdt`, so mis-read BDT frame data is the leading candidate, ahead of
-a mis-lifted x87/386 op in the transform (`shld`/`shrd`/`rcl`/`rcr`/`sahf` are
-decoded but still TODO).
-
-<details><summary>Resolved: the "Abnormal program termination" abort (2026-08)</summary>
-
-The abort had one root cause, three lifter defects deep. The chain, from the
-bottom up:
-
-1. **The lifter pushed a literal `0` as every call's return address.** Free
-   until guest code reads it back.
-2. **Borland's `_vprinter` reads it back.** `seg001_291B` is `call $+3` — the
-   "push IP" idiom — and `seg001_2AFC` later does `pop cx; add cx,3; jmp cx` to
-   resume past it. With `0` pushed, that computed `jmp` targeted `seg1:0003`.
-3. **`dispatch_near` missed**, and its miss path pops a frame the guest still
-   owns, so `_vprinter` (`seg001_269C`) returned mid-body with its `0x2A`-byte
-   frame and saved `si/di/es` still on the stack: **44 bytes of guest stack
-   leaked per formatted string**.
-4. The 64 KB guest stack drained, SP wrapped past `0`, and saved-`DS` slots read
-   back as `0`.
-5. A null `DS` makes `push ds; push 0x13F0` produce `0000:13F0`, so
-   `GetPrivateProfileString` got a null `lpAppName`/`lpFileName` — which in
-   Win16 means "return the section list", i.e. the literal string `"Catz"`.
-6. The engine opened a file named `Catz`, it did not exist, it threw, and no
-   handler was found.
-
-The earlier "Negative result: the null-DS config reads are NOT the abort's
-cause" commit was **wrong**, and instructively so: that experiment substituted
-the section pointer only, leaving the *filename* pointer null, so the read still
-returned garbage and the abort still fired. Half a fix measured as no fix.
-
-Fixes, all in the shared toolbox:
-
-- `ne_lift.py` pushes the **real return offset** (`local_off + inst.length`) for
-  near, far, and indirect calls instead of `0`.
-- `ne_lift.py` treats `call $+3` as **push-only** — emitting a C call there ran
-  the rest of the function twice (once nested, once via the fall-through) and
-  popped a frame that no longer existed.
-- `ne_decode.py` seeds a basic-block start at **the instruction after any
-  unconditional transfer** (`jmp`/`ret`/`retf`/`iret`). Nothing falls into such
-  an address, so it is either dead or a computed-jump target — `0x2921` here had
-  no label at all, which is why the dispatcher could not have resolved it even
-  with the right address.
-
-Measurement that found it: `tools/bpguard.py` (now also checking SP balance)
-plus the `[SP-DROP]` detector in `catz_sp_check`. `seg001_269C returned sp
-FA8E->FA62` was the first violation in the run; every later one was downstream
-damage.
-
-</details>
+1. **Return addresses were pushed as a literal `0`.** Free until guest code reads
+   one back -- Borland's `_vprinter` does, via `call $+3` then
+   `pop cx; add cx,3; jmp cx`. The computed jump went to `seg1:0003`,
+   `dispatch_near` missed, and its miss path popped a frame the guest still
+   owned: **44 bytes of guest stack leaked per formatted string** until the 64 KB
+   stack wrapped past 0 and saved-`DS` slots read back as 0. Fixed by pushing the
+   real return offset, by treating `call $+3` as push-only (a C call there ran
+   the rest of the function twice), and by seeding a basic-block start after
+   every unconditional transfer so the computed target had a label at all.
+2. **`idiv r/m32` was lifted as the 16-bit form** -- dividend from `DX:AX`,
+   divisor truncated to `int16`. `cdq; idiv dword` is the engine's standard
+   fixed-point scale-then-divide, so its geometry was wrong everywhere: **172
+   sites**, concentrated in seg036 (51), seg044 (25), seg039 (22), seg047 (21).
+3. **Relocated immediates were resolved for `mov` but not `push`**, so every far
+   pointer built as `push <selector>; push <offset>` carried the raw 0xFFFF
+   placeholder and aliased into the guard region. **139 sites.** This is what
+   made the WinG BITMAPINFO read back as ASCII.
+4. Petz resource tags needed an exact `(tag,id)` record to resolve, but those
+   records only cover the ids the data segment mentions literally -- `STBL/1000`
+   exists as type 0x7F04 and had none, so `FindResource` returned 0 and the
+   engine threw.
 
 ### Build notes that are easy to lose
 
