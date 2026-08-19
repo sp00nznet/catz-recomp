@@ -90,22 +90,37 @@ pet from real assets (`Apersian.lnz`, `kpersian.lnz`, `cat.bhd`, `cat.scp`,
 `eKatState_locomote`, `eKatGS_adoptionKit`, `eMouseGS_inMouseHole` -- on a 10 ms
 timer, posting `WM_CATZ_WINTERFACE` (0x083B) to its window each tick.
 
+It also shows its real startup wizard, with real controls built from the Win16
+dialog templates.
+
+### Where the render actually lives
+
+Tracing the per-frame path (the call-ring tail under `-DCATZ_WATCHDOG`) settled
+this: it is **not** in the host shell's WNDPROC. CATZ.WAD's WNDPROC only drains a
+command queue (`ds:[0x404]`, always 0) and re-posts `WM_CATZ_WINTERFACE`; its
+WM_PAINT is `BeginPaint`/`EndPaint` with nothing between. The playpen is a
+*dialog*: `DialogBoxParam(..., dlgproc=seg62:0A11)` creates the real game window,
+and the engine's own `SetTimer`, WM_TIMER tick and WM_PAINT -- the one that blits
+the WinG surface -- live in that DLGPROC.
+
 ### What is still wrong
 
-1. **Nothing is drawn.** `WinGStretchBlt` has still never executed. The frame
-   loop turns and the surfaces exist, so the remaining gap is between the
-   engine's per-frame work and the blit. Per-frame shim tracing
-   (`-DCATZ_TRACE_WIN16`) is the tool: it currently shows the tick reaching
-   `DIALOGBOXPARAM`, still a stub -- the state machine enters
-   `eKatGS_adoptionKit`, which in the real game is the first-run Adoption Kit
-   modal. Setting `Adoption=0` in `catz0.cat` does NOT unblock the blit, so the
-   dialog is not the only thing in the way.
+1. **Nothing is drawn, and the reason is the startup wizard.** `WinGStretchBlt`
+   has never executed. The engine reaches its first-run registration/adoption
+   wizard and stays there. Screen 611 is the first; its buttons lead to 602, 612,
+   613, 614 and 623 (`0x7D4` is "Next", `0x7D0` quits -- read out of the jump
+   table at `seg62:0x9D9`). Screen **613 is the serial-number screen**:
+   `seg061_0101` validates digits and dashes against the string at `ds:0x1084`,
+   and `GetPrivateProfileString([Catz] Serial Number)` returns empty because no
+   `C:\WINDOWS\catz.ini` exists. The dialogs now have working controls, so this
+   is user input to supply, not code to write.
+   `CATZ_DLG_RESULT=0x7D5,0x7D4,...` answers dialogs in order for scripted walks.
 2. **Coordinates are wrong.** The engine reports `Cat is at -770,-12513` and
    `Cloud sprite is -479 -10300 1599 20941`, then `Moment off screen, returning
    to center`. The Y magnitudes look like a fixed-point scale error still
    surviving somewhere in the geometry.
-3. `DIALOGBOXPARAM`, `CREATEDIALOG`, `CREATEPALETTE`, `GETOBJECT`, `SENDMESSAGE`
-   and `GETASYNCKEYSTATE` are still stubs.
+3. `CREATEDIALOG`, `CREATEPALETTE`, `GETOBJECT`, `SENDMESSAGE` and
+   `GETASYNCKEYSTATE` are still stubs.
 
 ### Lifter bugs fixed this round (each was silent, each was systemic)
 
