@@ -169,6 +169,38 @@ Without it the engine stops on its registration screen (dialog 613) and the
 playpen is never reached. The runtime says so on startup rather than leaving you
 to work it out from the wizard.
 
+### Where the pet's missing rect comes from (traced, not yet fixed)
+
+The pet is rendered every frame and clipped away. Chain, innermost first:
+
+1. `XBallz::DisplayBallzFrame` is handed a clip rect of `(-9429,0)-(10050,-9193)`.
+   Bottom above top, so the rectangle is empty and no ball is plotted. Measured
+   directly: 82,944 writes of the clear colour into the pet's 288x288 surface and
+   ZERO writes of any other value.
+2. That rect lives at the draw-port object `+0x96`, and `seg007_20F8` memcpy's it
+   (8 bytes) from the same object's `+0x124`.
+3. `+0x124` is written by `XApt::MoveDrawRect(XApt::ESpace, XRect*)`
+   (`seg002:216A`), which does not compute the rect -- it receives it already
+   wrong from its caller.
+4. The caller chain is `CatSprite::Dispatch` -> `CatSprite::DoCatInitKit` ->
+   `seg041_1B44` -> `MoveDrawRect`.
+
+Sane rects go through the very same function in the same run --
+`(0,0,167,333)`, `(4,39,163,109)`, `(9,44,158,74)` -- so `MoveDrawRect` and the
+rect plumbing are fine. Only the pet's own rect is wrong, and it is wrong on
+arrival. The space argument is not the discriminator either: both sane and
+garbage rects appear with space 0.
+
+Two things worth knowing before picking this up:
+
+- These measurements were taken in the **Adoption Kit**, reached by
+  auto-answering the welcome dialog with `CATZ_DLG_RESULT=2001`. The rect is set
+  from `DoCatInitKit`. Clicking through adoption to the real playpen may exercise
+  a different path and is worth trying first.
+- `CATZ_DUMP_BLIT=snapN` (with `CATZ_DUMP_DIR`) dumps every live WinG surface at
+  one instant with a distinct-value count. The count is the useful part: a
+  uniform fill and real artwork both report "all bytes nonzero".
+
 ### Build notes that are easy to lose
 
 - **`-O2` is required for correctness.** The lifter turns intra-segment jumps
