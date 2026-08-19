@@ -320,8 +320,19 @@ void GDI_GETSTOCKOBJECT(CPU *cpu) {            /* (index@0) */
 }
 
 void GDI_SELECTOBJECT(CPU *cpu) {              /* (hdc@2, hgdiobj@0) -> previous */
-    HDC dc = get_hdc(b_a16(cpu, 2));
-    HGDIOBJ o = get_hgdi(b_a16(cpu, 0));
+    uint16_t gdc = b_a16(cpu, 2), gob = b_a16(cpu, 0);
+    /* A WinG surface is not a real GDI object here; selecting one just records
+       which surface that WinG DC draws to and blits from. */
+    extern int wing_is_dc(uint16_t);
+    extern int wing_is_bmp(uint16_t);
+    extern uint16_t wing_select(uint16_t, uint16_t);
+    if (wing_is_dc(gdc) && wing_is_bmp(gob)) {
+        cpu->ax = wing_select(gdc, gob);
+        b_ret(cpu, 4);
+        return;
+    }
+    HDC dc = get_hdc(gdc);
+    HGDIOBJ o = get_hgdi(gob);
     HGDIOBJ prev = (dc && o) ? SelectObject(dc, o) : NULL;
     cpu->ax = prev ? put_hgdi(prev) : 0;
     b_ret(cpu, 4);

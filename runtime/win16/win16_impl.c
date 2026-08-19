@@ -247,14 +247,44 @@ void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
  * draws the pet into its pixel buffer, then WinGStretchBlt()s it to the window.
  * We give it a real guest-memory pixel buffer; presentation to the real window
  * is a no-op for now (gets the engine into its render loop). */
+/* Every WinGCreateDC used to return the SAME handle, and the blit sourced from
+ * whichever surface had been created last. The engine keeps several surfaces
+ * live (the 1024x640 backdrop, a 640x480, a 168x333, a 288x288 ...) and picks
+ * one per blit by selecting it into its DC, so "newest" was almost always the
+ * wrong one -- the blitted surface held nothing but its clear colour. Hand out a
+ * distinct DC per call and track which bitmap is selected into each. */
 #define WING_DC_HANDLE 0x0DC0
+#define WING_DC_MAX    8
 static struct { uint16_t hbm, sel; int w, h, bpp, topdown; uint8_t pal[256 * 4]; }
     g_wing[8];
-static int g_wing_cur = -1;          /* index selected into the WinG DC */
+static int g_wing_cur = -1;          /* last surface selected into any WinG DC */
 static int g_nwing;
+static uint16_t g_wingdc_sel[WING_DC_MAX];   /* WinG DC -> selected hbm */
+static int g_nwingdc;
+
+static int wing_index_of(uint16_t hbm) {
+    for (int i = 0; i < g_nwing && i < (int)(sizeof g_wing / sizeof g_wing[0]); i++)
+        if (g_wing[i].hbm == hbm) return i;
+    return -1;
+}
+
+/* SelectObject routes here for WinG handles; returns the previous selection. */
+uint16_t wing_select(uint16_t hdc, uint16_t hbm) {
+    int d = (int)hdc - WING_DC_HANDLE;
+    if (d < 0 || d >= WING_DC_MAX) return 0;
+    uint16_t prev = g_wingdc_sel[d];
+    g_wingdc_sel[d] = hbm;
+    int i = wing_index_of(hbm);
+    if (i >= 0) g_wing_cur = i;
+    return prev;
+}
+
+int wing_is_dc(uint16_t h)  { return h >= WING_DC_HANDLE && h < WING_DC_HANDLE + WING_DC_MAX; }
+int wing_is_bmp(uint16_t h) { return wing_index_of(h) >= 0; }
 
 void WING_WINGCREATEDC(CPU *cpu) {          /* WinGCreateDC(void) -> HDC */
-    cpu->ax = WING_DC_HANDLE;
+    cpu->ax = (uint16_t)(WING_DC_HANDLE +
+                         (g_nwingdc < WING_DC_MAX ? g_nwingdc++ : WING_DC_MAX - 1));
     IMPL_LOG("[win16] WinGCreateDC -> %04X\n", cpu->ax);
     ret(cpu, 0);
 }
@@ -290,7 +320,36 @@ static int g_npal;
 /* A modern desktop is not palettised and Win32's own GetSystemPaletteEntries
  * returns nothing, so synthesise the classic 256-colour layout: 10 system
  * colours, a 6x6x6 colour cube, 10 more system colours. */
+/* The game's own 256-colour palette ships as PALT 10256 (resource type 0x7F03,
+ * 256 RGB triples) and its artwork is authored against it. On a real 256-colour
+ * Win3.1 the system palette at this point already holds those colours; we cannot
+ * reproduce that history, so serve the game's palette as the system palette --
+ * without it the engine seeds from a generic ramp and every sprite comes out the
+ * wrong colour. Falls back to the synthetic layout if the resource is missing. */
+static uint8_t g_game_pal[256 * 3];
+static int     g_game_pal_ok = -1;          /* -1 = not tried */
+
+static int game_palette(void) {
+    if (g_game_pal_ok >= 0) return g_game_pal_ok;
+    g_game_pal_ok = 0;
+    uint16_t hr = ne_find_resource(0, 0x7F03, NULL, 10256, NULL);
+    uint32_t len = 0;
+    const uint8_t *p = hr ? ne_resource_bytes(hr, &len) : NULL;
+    if (p && len >= 256 * 3) {
+        memcpy(g_game_pal, p, 256 * 3);
+        g_game_pal_ok = 1;
+        fprintf(stderr, "[catz] using the game's own palette (PALT 10256)\n");
+    }
+    return g_game_pal_ok;
+}
+
 static void sys_palette_entry(unsigned i, uint8_t *r, uint8_t *g, uint8_t *b) {
+    if (game_palette() && i < 256) {
+        *r = g_game_pal[i * 3 + 0];
+        *g = g_game_pal[i * 3 + 1];
+        *b = g_game_pal[i * 3 + 2];
+        return;
+    }
     static const uint8_t sys[20][3] = {
         {0,0,0},{128,0,0},{0,128,0},{128,128,0},{0,0,128},{128,0,128},
         {0,128,128},{192,192,192},{192,220,192},{166,202,240},
@@ -435,12 +494,18 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     int hDest = (int16_t)a16(cpu, 10), wDest = (int16_t)a16(cpu, 12);
     int yDest = (int16_t)a16(cpu, 14), xDest = (int16_t)a16(cpu, 16);
     uint16_t hdcDest = a16(cpu, 18);
+    uint16_t hdcSrc  = a16(cpu, 8);
 
     extern HDC catz_real_hdc(uint16_t);
     HDC dst = catz_real_hdc(hdcDest);
-    if (!dst || g_wing_cur < 0) { cpu->ax = 0; ret(cpu, 20); return; }
+    if (!dst) { cpu->ax = 0; ret(cpu, 20); return; }
 
-    int i = g_wing_cur;
+    int i = -1;
+    {   int d = (int)hdcSrc - WING_DC_HANDLE;
+        if (d >= 0 && d < WING_DC_MAX) i = wing_index_of(g_wingdc_sel[d]);
+    }
+    if (i < 0) i = g_wing_cur;              /* nothing selected: last resort */
+    if (i < 0) { cpu->ax = 0; ret(cpu, 20); return; }
     /* BITMAPINFOHEADER + 256-entry palette, laid out as GDI32 wants it. */
     unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
     memset(bi, 0, sizeof bi);
@@ -455,6 +520,55 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     if (g_wing[i].bpp <= 8)
         memcpy(bi + sizeof(BITMAPINFOHEADER), g_wing[i].pal, 256 * 4);
 
+    /* CATZ_DUMP_BLIT=<n>: write the nth source surface out as a .bmp so the
+       actual pixels and colour table can be inspected directly. Diagnostic. */
+    {
+        static int seen = 0;
+        const char *want = getenv("CATZ_DUMP_BLIT");
+        int nth = want ? atoi(want) : -1;
+        if (nth >= 0 && seen++ == nth) {
+            uint32_t stride = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+            uint32_t nbits = stride * (uint32_t)g_wing[i].h;
+            uint32_t ncol = (g_wing[i].bpp <= 8) ? (1u << g_wing[i].bpp) : 0;
+            uint32_t offb = 14 + 40 + ncol * 4;
+            uint8_t fh[14] = {'B','M'};
+            uint32_t fsz = offb + nbits;
+            memcpy(fh + 2, &fsz, 4);
+            memcpy(fh + 10, &offb, 4);
+            BITMAPINFOHEADER ih; memset(&ih, 0, sizeof ih);
+            ih.biSize = 40; ih.biWidth = g_wing[i].w;
+            ih.biHeight = -g_wing[i].h;      /* stored top-down */
+            ih.biPlanes = 1; ih.biBitCount = (WORD)g_wing[i].bpp;
+            ih.biCompression = BI_RGB; ih.biSizeImage = nbits;
+            ih.biClrUsed = ncol;
+            char path[512];
+            snprintf(path, sizeof path, "%s/blit%d.bmp",
+                     getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".", nth);
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                fwrite(fh, 1, 14, f);
+                fwrite(&ih, 1, 40, f);
+                if (ncol) fwrite(g_wing[i].pal, 1, ncol * 4, f);
+                fwrite(cpu->mem + seg_off(cpu, g_wing[i].sel, 0), 1, nbits, f);
+                fclose(f);
+            }
+            /* And a histogram of the pixel indices actually present. */
+            unsigned hist[256]; memset(hist, 0, sizeof hist);
+            const uint8_t *px = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+            for (uint32_t k = 0; k < nbits; k++) hist[px[k]]++;
+            fprintf(stderr, "[blitdump] %s %dx%dx%d top indices:",
+                    path, g_wing[i].w, g_wing[i].h, g_wing[i].bpp);
+            for (int t = 0; t < 8; t++) {
+                int best = 0;
+                for (int c = 1; c < 256; c++) if (hist[c] > hist[best]) best = c;
+                fprintf(stderr, " %d=%u(%02X%02X%02X)", best, hist[best],
+                        g_wing[i].pal[best*4+2], g_wing[i].pal[best*4+1],
+                        g_wing[i].pal[best*4+0]);
+                hist[best] = 0;
+            }
+            fprintf(stderr, "\n");
+        }
+    }
     const void *bits = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
     SetStretchBltMode(dst, COLORONCOLOR);
     int r = StretchDIBits(dst, xDest, yDest, wDest, hDest,
