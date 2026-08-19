@@ -300,6 +300,23 @@ class NELifter(Lifter):
                                        f'{orig} -- selector for {mod}.{r.ordinal}')
                             return
                 elif r.src_type == 5:      # OFFSET16 (offset of a symbol)
+                    # KERNEL.113/114 are __AHSHIFT/__AHINCR: the loader patches
+                    # them with how a HUGE pointer steps its selector across a
+                    # 64K boundary. Borland emits
+                    #     add [off],1 ; adc ax,0 ; mov cl,__AHSHIFT
+                    #     shl ax,cl   ; add [sel],ax
+                    # Left as the 0xFFFF placeholder, cl became 255, the shift
+                    # produced 0, and the selector never advanced -- so every
+                    # buffer larger than 64K wrapped over its own start. Real
+                    # protected mode uses 3/8 because selectors are 8 apart;
+                    # our selectors are consecutive, so the pair is 0/1 and
+                    # cpu_alloc_selector tiles a huge block one selector per 64K.
+                    if tt in (1, 2) and module_name(self.ne, r.module_idx).upper() == 'KERNEL'                             and r.ordinal in (113, 114):
+                        val = 0 if r.ordinal == 113 else 1
+                        self._emit(_put(f'0x{val:04X}'),
+                                   f'{orig} -- KERNEL.{r.ordinal} '
+                                   f'({"__AHSHIFT" if r.ordinal == 113 else "__AHINCR"})')
+                        return
                     if tt == 0:
                         self._emit(_put(f'0x{r.target_off & 0xFFFF:04X}'),
                                    f'{orig} -- offset of seg{r.target_seg}:{r.target_off:04X}')

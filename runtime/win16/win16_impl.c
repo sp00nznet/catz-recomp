@@ -529,7 +529,40 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
         int nth = want ? atoi(want) : -1;
         int all = want && want[0] == 'a';    /* CATZ_DUMP_BLIT=all: one per surface */
         int go = 0;
-        if (all) {
+        int snap = want && want[0] == 's';   /* CATZ_DUMP_BLIT=snapN: all surfaces at blit N */
+        if (snap) {
+            static int fired = 0;
+            int at = atoi(want + 4);
+            if (!fired && seen++ >= at) {
+                fired = 1;
+                for (int q = 0; q < g_nwing && q < 8; q++) {
+                    uint32_t st = (((uint32_t)g_wing[q].w * g_wing[q].bpp + 31) / 32) * 4;
+                    uint32_t nb = st * (uint32_t)g_wing[q].h;
+                    unsigned nz = 0;
+                    const uint8_t *pp = cpu->mem + seg_off(cpu, g_wing[q].sel, 0);
+                    for (uint32_t k = 0; k < nb; k++) if (pp[k]) nz++;
+                    {   uint32_t ncol2 = (g_wing[q].bpp <= 8) ? (1u << g_wing[q].bpp) : 0;
+                        uint32_t offb2 = 14 + 40 + ncol2 * 4, fsz2 = offb2 + nb;
+                        uint8_t fh2[14] = {'B','M'};
+                        memcpy(fh2 + 2, &fsz2, 4); memcpy(fh2 + 10, &offb2, 4);
+                        BITMAPINFOHEADER ih2; memset(&ih2, 0, sizeof ih2);
+                        ih2.biSize = 40; ih2.biWidth = g_wing[q].w;
+                        ih2.biHeight = -g_wing[q].h; ih2.biPlanes = 1;
+                        ih2.biBitCount = (WORD)g_wing[q].bpp; ih2.biCompression = BI_RGB;
+                        ih2.biSizeImage = nb; ih2.biClrUsed = ncol2;
+                        char pth[512];
+                        snprintf(pth, sizeof pth, "%s/surf%d.bmp",
+                                 getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".", q);
+                        FILE *ff = fopen(pth, "wb");
+                        if (ff) { fwrite(fh2,1,14,ff); fwrite(&ih2,1,40,ff);
+                                  if (ncol2) fwrite(g_wing[q].pal,1,ncol2*4,ff);
+                                  fwrite(pp,1,nb,ff); fclose(ff); } }
+                    fprintf(stderr, "[snap] surf%d hbm=%04X %dx%d sel=%04X nonzero=%u of %u\n",
+                            q, g_wing[q].hbm, g_wing[q].w, g_wing[q].h, g_wing[q].sel, nz, nb);
+                }
+            }
+            go = 0;
+        } else if (all) {
             go = 1;
             for (int k = 0; k < ndumped; k++) if (dumped[k] == g_wing[i].hbm) go = 0;
             if (go && ndumped < 16) dumped[ndumped++] = g_wing[i].hbm;

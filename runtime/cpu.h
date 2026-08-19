@@ -553,6 +553,17 @@ static inline uint16_t cpu_alloc_selector(CPU *cpu, uint32_t bytes) {
     cpu->heap_next = base + bytes;
     uint16_t sel = cpu->next_sel++;
     cpu->sel_base[sel] = base;
+    /* Blocks larger than a segment need TILED selectors, the way Win16 hands
+     * back a huge block: sel addresses the first 64 KB, sel+1 the next, and so
+     * on, and guest code walking past 0xFFFF increments the selector. Without
+     * the tiles a 1024x640 WinG surface (655,360 bytes) was reachable only for
+     * its first 65,536 -- exactly 64 scanlines -- so everything the engine drew
+     * below that wrapped back over the top of the same surface. */
+    for (uint32_t off = 0x10000u; off < bytes; off += 0x10000u) {
+        if (cpu->next_sel == 0) break;
+        uint16_t tile = cpu->next_sel++;
+        cpu->sel_base[tile] = base + off;
+    }
     return sel;
 }
 
