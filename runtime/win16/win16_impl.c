@@ -451,9 +451,17 @@ void USER_ENUMTASKWINDOWS(CPU *cpu) {
     ret(cpu, 10);
 }
 
-void USER_GETTICKCOUNT(CPU *cpu) {          /* DX:AX ms, monotonic so waits end */
+/* One clock for the whole shim layer: USER.GetTickCount and MMSYSTEM.timeGetTime
+ * must agree or the engine's frame pacing sees time run backwards. Monotonic and
+ * always advancing so the engine's calibration waits terminate. */
+uint32_t catz_tick_ms(void) {
     static uint32_t t = 0;
     t += 16;
+    return t;
+}
+
+void USER_GETTICKCOUNT(CPU *cpu) {          /* DX:AX ms, monotonic so waits end */
+    uint32_t t = catz_tick_ms();
     cpu->ax = (uint16_t)t; cpu->dx = (uint16_t)(t >> 16);
     ret(cpu, 0);
 }

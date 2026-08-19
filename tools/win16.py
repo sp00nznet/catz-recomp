@@ -119,6 +119,9 @@ PURGE = {
     ('USER', 'MESSAGEBOX'): 12, ('USER', 'MESSAGEBEEP'): 2, ('USER', 'SETTIMER'): 10,
     ('USER', 'KILLTIMER'): 4, ('USER', 'GETTICKCOUNT'): 0, ('USER', 'PEEKMESSAGE'): 12,
     ('USER', 'SENDMESSAGE'): 10, ('USER', 'TRANSLATEMESSAGE'): 4,
+    # PostMessage(HWND, UINT, WPARAM, LPARAM) = 2+2+2+4. Missing here it
+    # purged 0 and corrupted the caller's stack on every engine frame tick.
+    ('USER', 'POSTMESSAGE'): 10,
     ('USER', 'DISPATCHMESSAGE'): 4, ('USER', 'POSTQUITMESSAGE'): 2,
     ('USER', 'SETCLASSWORD'): 6, ('USER', 'GETWINDOWLONG'): 4,
     ('USER', 'SETWINDOWLONG'): 8, ('USER', 'CLIPCURSOR'): 4, ('USER', 'LOADCURSOR'): 6,

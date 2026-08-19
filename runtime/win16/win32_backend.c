@@ -185,6 +185,120 @@ void USER_GETDC(CPU *cpu) {
     b_ret(cpu, 2);
 }
 
+/* BeginPaint/EndPaint. As stubs these returned a null HDC, so the engine's
+ * WM_PAINT handler bailed AND the update region was never validated -- Windows
+ * re-posted WM_PAINT forever and the engine did nothing else. Win16 PAINTSTRUCT
+ * is 16-bit throughout: hdc@0, fErase@2, rcPaint@4 (4 x int16), fRestore@12,
+ * fIncUpdate@14, rgbReserved@16..31. */
+/* InvalidateRect is how the engine asks for its next frame. As a stub it did
+ * nothing, so after the initial paints the window was never dirtied again and
+ * the engine sat in GetMessage forever. NULL lpRect means the whole client. */
+/* The engine's frame clock. As a stub returning 0 it created no timer, so after
+ * init the engine sat in GetMessage with nothing ever waking it -- everything
+ * ran once and then stopped. A NULL lpTimerFunc means "post WM_TIMER to the
+ * window", which the WndProc bridge already delivers; a non-NULL one would need
+ * a callback thunk, so say so rather than silently dropping it. */
+/* The engine drives its own frame pipeline by posting WM_CATZ_WINTERFACE to its
+ * parent window on every timer tick, so a stubbed PostMessage means the pipeline
+ * never advances past the tick that requests it. */
+void USER_POSTMESSAGE(CPU *cpu) {
+    HWND h        = get_hwnd(b_a16(cpu, 8));   /* hWnd@8 */
+    uint16_t msg  = b_a16(cpu, 6);             /* uMsg@6 */
+    uint16_t wp   = b_a16(cpu, 4);             /* wParam@4 */
+    uint32_t lp   = ((uint32_t)b_a16(cpu, 2) << 16) | b_a16(cpu, 0);  /* lParam@0/2 */
+    BOOL ok = h ? PostMessageA(h, msg, wp, (LPARAM)lp) : FALSE;
+    cpu->ax = (uint16_t)(ok ? 1 : 0);
+    b_ret(cpu, 10);
+}
+
+void USER_SETTIMER(CPU *cpu) {
+    HWND h        = get_hwnd(b_a16(cpu, 8));   /* hWnd@8 */
+    uint16_t id   = b_a16(cpu, 6);             /* nIDEvent@6 */
+    uint16_t ms   = b_a16(cpu, 4);             /* uElapse@4 */
+    uint16_t pseg = b_a16(cpu, 2);             /* lpTimerFunc@0/2 */
+    if (pseg)
+        fprintf(stderr, "[win16] *** SetTimer with a TIMERPROC (%04X) - "
+                        "callback thunk not implemented, using WM_TIMER\n", pseg);
+    UINT_PTR t = h ? SetTimer(h, id, ms ? ms : 1, NULL) : 0;
+    fprintf(stderr, "[win32] SetTimer(id=%u, %ums) -> %u\n", id, ms, (unsigned)t);
+    cpu->ax = (uint16_t)t;
+    b_ret(cpu, 10);
+}
+
+void USER_KILLTIMER(CPU *cpu) {
+    HWND h      = get_hwnd(b_a16(cpu, 2));     /* hWnd@2 */
+    uint16_t id = b_a16(cpu, 0);               /* nIDEvent@0 */
+    if (h) KillTimer(h, id);
+    cpu->ax = 1;
+    b_ret(cpu, 4);
+}
+
+void USER_INVALIDATERECT(CPU *cpu) {
+    HWND h = get_hwnd(b_a16(cpu, 6));                    /* hWnd@6 */
+    uint16_t roff = b_a16(cpu, 2), rseg = b_a16(cpu, 4); /* lpRect@2/4 */
+    BOOL erase = (BOOL)(int16_t)b_a16(cpu, 0);           /* bErase@0 */
+    RECT r;
+    if (rseg) {
+        r.left   = (int16_t)mem_read16(cpu, rseg, roff);
+        r.top    = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 2));
+        r.right  = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 4));
+        r.bottom = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 6));
+    }
+    if (h) InvalidateRect(h, rseg ? &r : NULL, erase);
+    cpu->ax = 1;
+    b_ret(cpu, 8);
+}
+
+/* timeGetTime -> DX:AX milliseconds. Returning 0 made every elapsed-time test
+ * see no time passing, so nothing animated. Shares USER_GETTICKCOUNT's clock
+ * so the engine's two time sources cannot disagree. */
+void MMSYSTEM_TIMEGETTIME(CPU *cpu) {
+    extern uint32_t catz_tick_ms(void);
+    uint32_t t = catz_tick_ms();
+    cpu->ax = (uint16_t)t; cpu->dx = (uint16_t)(t >> 16);
+    b_ret(cpu, 0);
+}
+
+void USER_BEGINPAINT(CPU *cpu) {
+    HWND h = get_hwnd(b_a16(cpu, 4));                    /* hWnd@4 */
+    uint16_t poff = b_a16(cpu, 0), pseg = b_a16(cpu, 2); /* lpPaint@0/2 */
+    PAINTSTRUCT ps;
+    HDC dc = h ? BeginPaint(h, &ps) : NULL;
+    uint16_t gdc = dc ? put_hdc(dc) : 0;
+    if (pseg) {
+        const int16_t f[8] = {
+            (int16_t)gdc, (int16_t)(dc ? ps.fErase : 0),
+            (int16_t)ps.rcPaint.left,  (int16_t)ps.rcPaint.top,
+            (int16_t)ps.rcPaint.right, (int16_t)ps.rcPaint.bottom,
+            0, 0,
+        };
+        for (int i = 0; i < 8; i++)
+            mem_write16(cpu, pseg, (uint16_t)(poff + 2 * i), (uint16_t)f[i]);
+        for (int i = 16; i < 32; i++)
+            mem_write8(cpu, pseg, (uint16_t)(poff + i), 0);
+    }
+    cpu->ax = gdc;
+    b_ret(cpu, 6);
+}
+
+void USER_ENDPAINT(CPU *cpu) {
+    HWND h = get_hwnd(b_a16(cpu, 4));
+    uint16_t poff = b_a16(cpu, 0), pseg = b_a16(cpu, 2);
+    PAINTSTRUCT ps;
+    memset(&ps, 0, sizeof ps);
+    if (pseg) {
+        ps.hdc          = get_hdc(mem_read16(cpu, pseg, poff));
+        ps.fErase       = (BOOL)(int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 2));
+        ps.rcPaint.left = (int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 4));
+        ps.rcPaint.top  = (int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 6));
+        ps.rcPaint.right  = (int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 8));
+        ps.rcPaint.bottom = (int16_t)mem_read16(cpu, pseg, (uint16_t)(poff + 10));
+    }
+    if (h) EndPaint(h, &ps);
+    cpu->ax = 1;
+    b_ret(cpu, 6);
+}
+
 void USER_RELEASEDC(CPU *cpu) {
     uint16_t gdc = b_a16(cpu, 0);   /* HWND@2, HDC@0 */
     HWND h = get_hwnd(b_a16(cpu, 2));
