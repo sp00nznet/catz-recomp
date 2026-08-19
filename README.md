@@ -171,32 +171,48 @@ to work it out from the wizard.
 
 ### Where the pet's missing rect comes from (traced, not yet fixed)
 
-The pet is rendered every frame and clipped away. Chain, innermost first:
+The pet is rendered every frame and clipped away. The whole chain, each step
+verified by measurement (write watchpoints and printed values), innermost first:
 
-1. `XBallz::DisplayBallzFrame` is handed a clip rect of `(-9429,0)-(10050,-9193)`.
-   Bottom above top, so the rectangle is empty and no ball is plotted. Measured
-   directly: 82,944 writes of the clear colour into the pet's 288x288 surface and
-   ZERO writes of any other value.
-2. That rect lives at the draw-port object `+0x96`, and `seg007_20F8` memcpy's it
+1. `XBallz::DisplayBallzFrame` gets a clip rect of `(-9429,0)-(10050,-9193)`.
+   Bottom above top, so it is empty and no ball is plotted. Measured: 82,944
+   writes of the clear colour into the pet's 288x288 surface, ZERO of any other
+   value.
+2. That rect lives at the draw-port object `+0x96`; `seg007_20F8` memcpy's it
    (8 bytes) from the same object's `+0x124`.
-3. `+0x124` is written by `XApt::MoveDrawRect(XApt::ESpace, XRect*)`
-   (`seg002:216A`), which does not compute the rect -- it receives it already
-   wrong from its caller.
-4. The caller chain is `CatSprite::Dispatch` -> `CatSprite::DoCatInitKit` ->
-   `seg041_1B44` -> `MoveDrawRect`.
+3. `+0x124` is written field by field by `XApt::MoveDrawRect` (`seg002:216A`),
+   which stores what it is handed. It is already wrong on arrival.
+4. Its caller is `ScriptSprite::PopScript` (`seg041`), which passes a local rect
+   at `ss:[bp-0x26]`.
+5. `XBallz::MoveFrameRect` (`seg47:1E64`) is called on that local -- and does not
+   change it. Printed before and after: identical, garbage both times.
+6. The local is filled from the sprite's own stored rect, reached through a far
+   pointer at object `+0x242`. That stored rect is itself inverted:
+   `(5714, 45, 0, 42)` -- left 5714, right 0.
+7. It is written exactly twice, both during init, by `seg047_1702` (inside
+   XBallz setup), reached via `seg034_1327 -> seg016_0F7F -> seg040_0DF0 ->
+   seg047_11D1`.
 
-Sane rects go through the very same function in the same run --
-`(0,0,167,333)`, `(4,39,163,109)`, `(9,44,158,74)` -- so `MoveDrawRect` and the
-rect plumbing are fine. Only the pet's own rect is wrong, and it is wrong on
-arrival. The space argument is not the discriminator either: both sane and
-garbage rects appear with space 0.
+So the pet's frame rect is built wrong once at initialisation and never
+recomputed; everything after that faithfully propagates it.
+
+What this rules out, so it is not re-checked:
+
+- `MoveDrawRect`, `MoveFrameRect` and the rect plumbing are fine -- sane rects
+  travel the same path in the same run: `(306,156,334,184)`, `(0,0,167,333)`,
+  `(4,39,163,109)`.
+- The `XApt::ESpace` argument is not the discriminator; sane and garbage rects
+  both arrive with space 0.
+- No systemic lifter gap remains to blame. There are no dropped instructions, no
+  `esc_N` left unlifted, no 32-bit addressing the lifter mishandles, and the 11
+  remaining `???` x87 decodes are data-in-code misreads
+  (`00 00 FF FF 00 00 DA FF`), not real instructions.
 
 Two things worth knowing before picking this up:
 
-- These measurements were taken in the **Adoption Kit**, reached by
-  auto-answering the welcome dialog with `CATZ_DLG_RESULT=2001`. The rect is set
-  from `DoCatInitKit`. Clicking through adoption to the real playpen may exercise
-  a different path and is worth trying first.
+- These measurements come from the **Adoption Kit**, reached by auto-answering
+  the welcome dialog with `CATZ_DLG_RESULT=2001`. Clicking through adoption to
+  the real playpen may exercise a different path and is worth trying first.
 - `CATZ_DUMP_BLIT=snapN` (with `CATZ_DUMP_DIR`) dumps every live WinG surface at
   one instant with a distinct-value count. The count is the useful part: a
   uniform fill and real artwork both report "all bytes nonzero".
