@@ -27,3 +27,6 @@ build_sp/
 
 # Diagnostic build variants (watchdog / sp-watch / dispatch-trace)
 build_*/
+
+# Diagnostic surface dumps (CATZ_DUMP_BLIT)
+*.bmp
