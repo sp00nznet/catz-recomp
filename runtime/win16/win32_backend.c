@@ -16,6 +16,7 @@
 #include "ne_resources.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <windows.h>
 
 extern CPU *g_cpu;
@@ -28,6 +29,7 @@ static inline uint32_t b_a32(CPU *cpu, int off) {
     return (uint32_t)b_a16(cpu, off) | ((uint32_t)b_a16(cpu, off + 2) << 16);
 }
 static inline void b_ret(CPU *cpu, int purge) { cpu->sp += 4 + purge; }
+static void b_asciiz(CPU *cpu, uint16_t seg, uint16_t off, char *out, int max);
 
 /* ---- guest HWND/HDC handle tables (16-bit guest handle <-> real) ---- */
 #define MAXH 64
@@ -56,14 +58,41 @@ static uint16_t put_hgdi(HGDIOBJ h) {
     g_gdi[g_ngdi] = h; return (uint16_t)g_ngdi++;
 }
 
-/* ---- the guest window procedure captured from RegisterClass ---- */
+/* ---- guest window classes ----
+ * One global WNDPROC was wrong: CATZ.WAD and CATZDLL each register their own
+ * class, and every window was being routed to whichever registered last. The
+ * engine's own window therefore ran the host shell's WNDPROC, so its WM_PAINT --
+ * the one that blits the WinG surface -- never ran. Key the proc by class name,
+ * and remember which proc each HWND was created with. */
+#define MAXCLS 32
+typedef struct { char name[64]; uint16_t seg, off; } GuestClass;
+static GuestClass g_cls[MAXCLS];
+static int g_ncls;
+
+/* Parallel to g_hwnd: the guest WNDPROC this window was created with. */
+static uint16_t g_hwnd_proc_seg[MAXH], g_hwnd_proc_off[MAXH];
+
+/* Last class registered; the fallback for a window whose class we never saw. */
 static uint16_t g_wndproc_seg = 0, g_wndproc_off = 0;
+
+static GuestClass *cls_find(const char *name) {
+    for (int i = 0; i < g_ncls; i++)
+        if (!strcmp(g_cls[i].name, name)) return &g_cls[i];
+    return NULL;
+}
+
+static void hwnd_proc(HWND h, uint16_t *seg, uint16_t *off) {
+    for (int i = 1; i < g_nhwnd; i++)
+        if (g_hwnd[i] == h) { *seg = g_hwnd_proc_seg[i]; *off = g_hwnd_proc_off[i]; return; }
+    *seg = g_wndproc_seg; *off = g_wndproc_off;
+}
 
 /* Call the guest WNDPROC(hWnd, uMsg, wParam, lParam) via the far dispatcher.
  * Win16 PASCAL: push args left-to-right; lParam is a DWORD (hi word first). */
-static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam) {
+static uint16_t call_guest_wndproc(uint16_t pseg, uint16_t poff,
+                                   uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam) {
     CPU *cpu = g_cpu;
-    if (!g_wndproc_seg) return 0;
+    if (!pseg) return 0;
     /* The WNDPROC runs re-entrantly (CreateWindow delivers WM_NCCREATE/CREATE
      * synchronously while the guest is mid-call), so snapshot the FULL guest
      * register state and restore it afterwards. */
@@ -81,14 +110,14 @@ static uint16_t call_guest_wndproc(uint16_t hwnd, uint16_t msg, uint16_t wparam,
     uint16_t saved_exc_head_10 = mem_read16(cpu, cpu->ss, 0x10);
     uint16_t saved_exc_head    = mem_read16(cpu, cpu->ss, 0x14);
     uint16_t saved_exc_head_16 = mem_read16(cpu, cpu->ss, 0x16);
-    cpu->ds = cpu->es = (g_wndproc_seg <= 59) ? CATZ_DLL_AUTO_DATA_SEG : CATZ_AUTO_DATA_SEG;
+    cpu->ds = cpu->es = (pseg <= 59) ? CATZ_DLL_AUTO_DATA_SEG : CATZ_AUTO_DATA_SEG;
     push16(cpu, hwnd);
     push16(cpu, msg);
     push16(cpu, wparam);
     push16(cpu, (uint16_t)(lparam >> 16));
     push16(cpu, (uint16_t)(lparam & 0xFFFF));
     push16(cpu, cpu->cs); push16(cpu, 0);          /* far return frame */
-    dispatch_far(cpu, g_wndproc_seg, g_wndproc_off);
+    dispatch_far(cpu, pseg, poff);
     uint16_t ret = cpu->ax;
     /* restore everything except the heap/memory bookkeeping (which the WNDPROC
      * may have legitimately advanced via GlobalAlloc). */
@@ -121,10 +150,16 @@ static int forward_to_guest(UINT msg) {
 }
 
 static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (msg == WM_DESTROY) { PostQuitMessage(0); return 0; }
-    if (g_wndproc_seg && forward_to_guest(msg)) {
+    if (msg == WM_DESTROY) {
+        fprintf(stderr, "[win32] WM_DESTROY on %p\n", (void *)hWnd);
+        PostQuitMessage(0); return 0;
+    }
+    uint16_t pseg, poff;
+    hwnd_proc(hWnd, &pseg, &poff);
+    if (pseg && forward_to_guest(msg)) {
         uint16_t gh = put_hwnd(hWnd);
-        return call_guest_wndproc(gh, (uint16_t)msg, (uint16_t)wParam, (uint32_t)lParam);
+        return call_guest_wndproc(pseg, poff, gh, (uint16_t)msg,
+                                  (uint16_t)wParam, (uint32_t)lParam);
     }
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
@@ -132,36 +167,85 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
 /* ===== USER: window class + creation ===== */
 
 void USER_REGISTERCLASS(CPU *cpu) {
-    /* lpWndClass far ptr: off@0, seg@2. Win16 WNDCLASS: style@0(2),
-     * lpfnWndProc@2(4 far), ...  Capture the guest WNDPROC. */
+    /* Win16 WNDCLASS: style@0(2) lpfnWndProc@2(4 far) cbClsExtra@6 cbWndExtra@8
+     * hInstance@10 hIcon@12 hCursor@14 hbrBackground@16 lpszMenuName@18(4)
+     * lpszClassName@22(4). */
     uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
-    g_wndproc_off = mem_read16(cpu, seg, (uint16_t)(off + 2));
-    g_wndproc_seg = mem_read16(cpu, seg, (uint16_t)(off + 4));
-    fprintf(stderr, "[win32] RegisterClass: guest WNDPROC = seg%u:%04X\n",
-            g_wndproc_seg, g_wndproc_off);
-    static int registered = 0;
-    if (!registered) {
+    uint16_t poff = mem_read16(cpu, seg, (uint16_t)(off + 2));
+    uint16_t pseg = mem_read16(cpu, seg, (uint16_t)(off + 4));
+    uint16_t noff = mem_read16(cpu, seg, (uint16_t)(off + 22));
+    uint16_t nseg = mem_read16(cpu, seg, (uint16_t)(off + 24));
+
+    char name[64] = "";
+    if (nseg) b_asciiz(cpu, nseg, noff, name, sizeof name);
+    if (!name[0]) snprintf(name, sizeof name, "CatzGuestCls%d", g_ncls);
+
+    g_wndproc_seg = pseg; g_wndproc_off = poff;
+
+    GuestClass *c = cls_find(name);
+    if (!c && g_ncls < MAXCLS) {
+        c = &g_cls[g_ncls++];
+        snprintf(c->name, sizeof c->name, "%s", name);
         WNDCLASSA wc; memset(&wc, 0, sizeof wc);
-        wc.lpfnWndProc = host_wndproc;
-        wc.hInstance = GetModuleHandle(NULL);
-        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.style         = CS_OWNDC;
+        wc.lpfnWndProc   = host_wndproc;
+        wc.hInstance     = GetModuleHandle(NULL);
+        wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        wc.lpszClassName = "CatzRecompWnd";
+        wc.lpszClassName = c->name;
         RegisterClassA(&wc);
-        registered = 1;
     }
+    if (c) { c->seg = pseg; c->off = poff; }
+
+    fprintf(stderr, "[win32] RegisterClass(\"%s\") -> guest WNDPROC seg%u:%04X\n",
+            name, pseg, poff);
     cpu->ax = 0xC001;
     b_ret(cpu, 4);
 }
 
 void USER_CREATEWINDOW(CPU *cpu) {
+    /* CreateWindow(lpClassName@26, lpWindowName@22, dwStyle@18, x@16, y@14,
+     * nWidth@12, nHeight@10, hWndParent@8, hMenu@6, hInstance@4, lpParam@0).
+     * Every argument used to be ignored, so the engine's window was created as
+     * another top-level 640x480 frame under the shell's class -- wrong size,
+     * wrong parent, and wrong WNDPROC. */
     if (getenv("CATZ_FAKE_WIN")) { cpu->ax = 0x0CA7; b_ret(cpu, 30); return; }
-    HWND h = CreateWindowExA(0, "CatzRecompWnd", "Catz (recomp)",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 480,
-        NULL, NULL, GetModuleHandle(NULL), NULL);
-    uint16_t gh = h ? put_hwnd(h) : 0;
-    fprintf(stderr, "[win32] CreateWindow -> real=%p guest=%u err=%lu\n",
-            (void*)h, gh, h ? 0UL : (unsigned long)GetLastError());
+
+    uint16_t coff = b_a16(cpu, 26), cseg = b_a16(cpu, 28);
+    uint16_t toff = b_a16(cpu, 22), tseg = b_a16(cpu, 24);
+    uint32_t style = b_a32(cpu, 18);
+    int x = (int16_t)b_a16(cpu, 16), y = (int16_t)b_a16(cpu, 14);
+    int w = (int16_t)b_a16(cpu, 12), h = (int16_t)b_a16(cpu, 10);
+    HWND parent = get_hwnd(b_a16(cpu, 8));
+
+    char cname[64] = "", title[128] = "Catz (recomp)";
+    if (cseg) b_asciiz(cpu, cseg, coff, cname, sizeof cname);
+    if (tseg) b_asciiz(cpu, tseg, toff, title, sizeof title);
+
+    GuestClass *c = cname[0] ? cls_find(cname) : NULL;
+    const char *hostcls = c ? c->name : (g_ncls ? g_cls[0].name : "CatzGuestCls0");
+
+    /* CW_USEDEFAULT is 0x8000 in Win16 and a different value in Win32. */
+    if ((uint16_t)x == 0x8000) x = CW_USEDEFAULT;
+    if ((uint16_t)y == 0x8000) y = CW_USEDEFAULT;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    /* A child needs a parent; without WS_CHILD force a top-level frame. */
+    if (!(style & WS_CHILD)) parent = NULL;
+    else if (!parent) style &= ~(uint32_t)WS_CHILD;
+
+    HWND hw = CreateWindowExA(0, hostcls, title, (DWORD)style, x, y, w, h,
+                              parent, NULL, GetModuleHandle(NULL), NULL);
+    uint16_t gh = hw ? put_hwnd(hw) : 0;
+    if (gh) {
+        g_hwnd_proc_seg[gh] = c ? c->seg : g_wndproc_seg;
+        g_hwnd_proc_off[gh] = c ? c->off : g_wndproc_off;
+    }
+    fprintf(stderr, "[win32] CreateWindow(\"%s\" style=%08lX %dx%d parent=%p) "
+                    "-> real=%p guest=%u proc=seg%u:%04X err=%lu\n",
+            cname, (unsigned long)style, w, h, (void *)parent, (void *)hw, gh,
+            gh ? g_hwnd_proc_seg[gh] : 0, gh ? g_hwnd_proc_off[gh] : 0,
+            hw ? 0UL : (unsigned long)GetLastError());
     cpu->ax = gh;
     b_ret(cpu, 30);
 }
@@ -201,6 +285,148 @@ void USER_GETDC(CPU *cpu) {
 /* The engine drives its own frame pipeline by posting WM_CATZ_WINTERFACE to its
  * parent window on every timer tick, so a stubbed PostMessage means the pipeline
  * never advances past the tick that requests it. */
+/* DialogBoxParam. The Catz playpen IS a dialog: the engine's whole frame
+ * pipeline -- its own SetTimer, its WM_TIMER tick and its WM_PAINT (the one that
+ * blits the WinG surface) -- lives in the DLGPROC passed here, not in the host
+ * shell's WNDPROC. The old stub returned 0 immediately, so WM_INITDIALOG never
+ * fired, the engine's timer was never created, and nothing ever rendered; the
+ * caller (seg062_07B6) just re-created the dialog forever.
+ *
+ * ponytail: the Win16 DLGTEMPLATE is not converted to a Win32 one, so the
+ * dialog is created as a plain window running the guest DLGPROC and no child
+ * controls exist. That is enough for the playpen, which draws itself; add real
+ * template conversion when a dialog's controls have to be interacted with.
+ * Modal, per Win16: it pumps the whole queue until EndDialog. */
+static int      g_dlg_depth;
+static int      g_dlg_ended[8];
+static uint16_t g_dlg_result[8];
+static HWND     g_dlg_hwnd[8];
+
+/* Dialog item text. No child controls exist (no template conversion), so the
+ * engine's SetDlgItemText went nowhere and the matching GetDlgItemText came back
+ * empty -- which is why the startup wizard's name screen never validated and
+ * re-showed itself forever. Keep the text in a small store so it round-trips
+ * exactly as a real edit control would. */
+#define MAXDLGTXT 64
+typedef struct { uint16_t hdlg, id; char text[128]; } DlgText;
+static DlgText g_dlgtxt[MAXDLGTXT];
+static int g_ndlgtxt;
+
+static DlgText *dlgtxt(uint16_t hdlg, uint16_t id, int create) {
+    for (int i = 0; i < g_ndlgtxt; i++)
+        if (g_dlgtxt[i].hdlg == hdlg && g_dlgtxt[i].id == id) return &g_dlgtxt[i];
+    if (!create || g_ndlgtxt >= MAXDLGTXT) return NULL;
+    DlgText *t = &g_dlgtxt[g_ndlgtxt++];
+    t->hdlg = hdlg; t->id = id; t->text[0] = 0;
+    return t;
+}
+
+void USER_SETDLGITEMTEXT(CPU *cpu) {         /* (hDlg@6, nIDDlgItem@4, lpString@0/2) */
+    uint16_t hdlg = b_a16(cpu, 6), id = b_a16(cpu, 4);
+    uint16_t soff = b_a16(cpu, 0), sseg = b_a16(cpu, 2);
+    DlgText *t = dlgtxt(hdlg, id, 1);
+    if (t && sseg) b_asciiz(cpu, sseg, soff, t->text, sizeof t->text);
+    else if (t) t->text[0] = 0;
+    cpu->ax = 1;
+    b_ret(cpu, 8);
+}
+
+void USER_GETDLGITEMTEXT(CPU *cpu) {         /* (hDlg@8, nID@6, lpString@2/4, nMax@0) */
+    uint16_t hdlg = b_a16(cpu, 8), id = b_a16(cpu, 6);
+    uint16_t soff = b_a16(cpu, 2), sseg = b_a16(cpu, 4);
+    uint16_t nmax = b_a16(cpu, 0);
+    DlgText *t = dlgtxt(hdlg, id, 0);
+    const char *src = t ? t->text : "";
+    uint16_t n = 0;
+    if (sseg && nmax) {
+        for (; src[n] && n + 1 < nmax; n++)
+            mem_write8(cpu, sseg, (uint16_t)(soff + n), (uint8_t)src[n]);
+        mem_write8(cpu, sseg, (uint16_t)(soff + n), 0);
+    }
+    cpu->ax = n;
+    b_ret(cpu, 10);
+}
+
+void USER_GETDLGITEM(CPU *cpu) {             /* (hDlg@2, nIDDlgItem@0) */
+    /* No real control window, but returning 0 makes callers treat the item as
+     * missing and bail. Hand back a stable non-zero pseudo-handle per id. */
+    uint16_t id = b_a16(cpu, 0);
+    cpu->ax = (uint16_t)(0xD000 | (id & 0x0FFF));
+    b_ret(cpu, 4);
+}
+
+void USER_ENDDIALOG(CPU *cpu) {
+    HWND h        = get_hwnd(b_a16(cpu, 2));   /* hDlg@2 */
+    uint16_t code = b_a16(cpu, 0);             /* nResult@0 */
+    for (int i = g_dlg_depth - 1; i >= 0; i--) {
+        if (h && g_dlg_hwnd[i] != h) continue;
+        g_dlg_ended[i] = 1; g_dlg_result[i] = code;
+        break;
+    }
+    fprintf(stderr, "[win32] EndDialog(result=%u)\n", code);
+    cpu->ax = 1;
+    b_ret(cpu, 4);
+}
+
+void USER_DIALOGBOXPARAM(CPU *cpu) {
+    uint16_t tmpl  = b_a16(cpu, 10);           /* lpTemplateName@10/12 (an id) */
+    HWND parent    = get_hwnd(b_a16(cpu, 8));  /* hWndParent@8 */
+    uint16_t poff  = b_a16(cpu, 4);            /* lpDialogFunc@4/6 */
+    uint16_t pseg  = b_a16(cpu, 6);
+    uint32_t param = b_a32(cpu, 0);            /* dwInitParam@0 */
+
+    if (g_dlg_depth >= (int)(sizeof g_dlg_ended / sizeof g_dlg_ended[0]) || !pseg) {
+        cpu->ax = 0; b_ret(cpu, 16); return;
+    }
+    int d = g_dlg_depth++;
+    g_dlg_ended[d] = 0; g_dlg_result[d] = 0;
+
+    RECT rc = { 0, 0, 470, 370 };
+    if (parent) GetClientRect(parent, &rc);
+    if (rc.right - rc.left < 16 || rc.bottom - rc.top < 16) { rc.right = 470; rc.bottom = 370; }
+
+    const char *hostcls = g_ncls ? g_cls[0].name : "CatzGuestCls0";
+    HWND h = CreateWindowExA(0, hostcls, "Catz", WS_OVERLAPPEDWINDOW,
+                             CW_USEDEFAULT, CW_USEDEFAULT,
+                             rc.right - rc.left, rc.bottom - rc.top,
+                             NULL, NULL, GetModuleHandle(NULL), NULL);
+    uint16_t gh = h ? put_hwnd(h) : 0;
+    if (gh) { g_hwnd_proc_seg[gh] = pseg; g_hwnd_proc_off[gh] = poff; }
+    g_dlg_hwnd[d] = h;
+    fprintf(stderr, "[win32] DialogBoxParam(template=%u dlgproc=seg%u:%04X) "
+                    "-> hwnd=%p guest=%u %dx%d\n",
+            tmpl, pseg, poff, (void *)h, gh,
+            (int)(rc.right - rc.left), (int)(rc.bottom - rc.top));
+
+    if (h) {
+        ShowWindow(h, SW_SHOW);
+        /* WM_INITDIALOG is what the engine hangs its whole setup off. */
+        call_guest_wndproc(pseg, poff, gh, 0x0110, gh, param);
+        UpdateWindow(h);
+        /* Bring-up knob: with no dialog controls nothing can press a button, so
+           CATZ_DLG_RESULT lets a run answer every dialog with one code and walk
+           the startup wizard forward (0x7D4 is its "Next"). Off by default. */
+        const char *forced = getenv("CATZ_DLG_RESULT");
+        if (forced) {
+            g_dlg_ended[d] = 1;
+            g_dlg_result[d] = (uint16_t)strtoul(forced, NULL, 0);
+            fprintf(stderr, "[win32] dialog %u auto-answered %u\n",
+                    tmpl, g_dlg_result[d]);
+        }
+        MSG m;
+        while (!g_dlg_ended[d] && GetMessageA(&m, NULL, 0, 0)) {
+            TranslateMessage(&m);
+            DispatchMessageA(&m);
+        }
+        fprintf(stderr, "[win32] dialog loop exit: ended=%d (0 means WM_QUIT)\n",
+                g_dlg_ended[d]);
+        DestroyWindow(h);
+    }
+    g_dlg_depth--;
+    cpu->ax = h ? g_dlg_result[d] : 0;
+    b_ret(cpu, 16);
+}
+
 void USER_POSTMESSAGE(CPU *cpu) {
     HWND h        = get_hwnd(b_a16(cpu, 8));   /* hWnd@8 */
     uint16_t msg  = b_a16(cpu, 6);             /* uMsg@6 */

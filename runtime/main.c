@@ -228,6 +228,14 @@ void dump_fn_ring(int n)
         fprintf(stderr, "  %5d  %s\n", counts[best], names[best]);
         counts[best] = -1;
     }
+    /* The histogram names the spin, but not the order. The tail in call
+       order is what shows which branch a per-frame handler actually takes. */
+    fprintf(stderr, "--- last %d calls, oldest first ---\n", n);
+    for (int i = n; i > 0; i--) {
+        const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)i) & (CATZ_FN_RING_SIZE - 1)];
+        if (nm) fprintf(stderr, " %s", nm);
+    }
+    fprintf(stderr, "\n");
     fprintf(stderr, "--- end (total calls=%u) ---\n", g_fn_ring_pos);
 }
 

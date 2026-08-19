@@ -130,10 +130,8 @@ void USER_DEFWINDOWPROC(CPU *cpu) { (void)cpu; WIN16_LOG("DEFWINDOWPROC"); cpu->
 void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("DESTROYICON"); }
 void USER_DESTROYWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYWINDOW"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; cpu->sp += 4 + 12; }
-void USER_DIALOGBOXPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOXPARAM"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("DIALOGBOXPARAM"); }
 void USER_DRAWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("DRAWTEXT"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ENABLEWINDOW"); }
-void USER_ENDDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("ENDDIALOG"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_ENUMWINDOWS(CPU *cpu) { (void)cpu; WIN16_LOG("ENUMWINDOWS"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_FILLRECT(CPU *cpu) { (void)cpu; WIN16_LOG("FILLRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_FRAMERECT(CPU *cpu) { (void)cpu; WIN16_LOG("FRAMERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
@@ -142,9 +140,7 @@ void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE");
 void USER_GETCLASSNAME(CPU *cpu) { (void)cpu; WIN16_LOG("GETCLASSNAME"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETCLASSNAME"); }
 void USER_GETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("GETCURSORPOS"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETCURSORPOS"); }
 void USER_GETDESKTOPWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETDESKTOPWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
-void USER_GETDLGITEM(CPU *cpu) { (void)cpu; WIN16_LOG("GETDLGITEM"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_GETDLGITEMINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETDLGITEMINT"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void USER_GETDLGITEMTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("GETDLGITEMTEXT"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_GETFOCUS(CPU *cpu) { (void)cpu; WIN16_LOG("GETFOCUS"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETSYSCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSCOLOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_GETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 4; }
@@ -170,7 +166,6 @@ void USER_SETCLASSWORD(CPU *cpu) { (void)cpu; WIN16_LOG("SETCLASSWORD"); cpu->ax
 void USER_SETCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSORPOS"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_SETDLGITEMINT(CPU *cpu) { (void)cpu; WIN16_LOG("SETDLGITEMINT"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_SETDLGITEMTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("SETDLGITEMTEXT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_SETSCROLLPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLPOS"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_SETSCROLLRANGE(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLRANGE"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_SETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 8; }
