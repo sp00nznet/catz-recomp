@@ -524,9 +524,20 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
        actual pixels and colour table can be inspected directly. Diagnostic. */
     {
         static int seen = 0;
+        static uint16_t dumped[16]; static int ndumped;
         const char *want = getenv("CATZ_DUMP_BLIT");
         int nth = want ? atoi(want) : -1;
-        if (nth >= 0 && seen++ == nth) {
+        int all = want && want[0] == 'a';    /* CATZ_DUMP_BLIT=all: one per surface */
+        int go = 0;
+        if (all) {
+            go = 1;
+            for (int k = 0; k < ndumped; k++) if (dumped[k] == g_wing[i].hbm) go = 0;
+            if (go && ndumped < 16) dumped[ndumped++] = g_wing[i].hbm;
+            nth = g_wing[i].hbm;
+        } else {
+            go = (nth >= 0 && seen++ == nth);
+        }
+        if (go) {
             uint32_t stride = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
             uint32_t nbits = stride * (uint32_t)g_wing[i].h;
             uint32_t ncol = (g_wing[i].bpp <= 8) ? (1u << g_wing[i].bpp) : 0;
