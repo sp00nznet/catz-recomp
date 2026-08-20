@@ -414,6 +414,24 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
     _fpu_fixup(instructions)   # recover() may have added more ESC opcodes
     instructions.sort(key=lambda i: i.offset)
 
+    # Drop anything that starts INSIDE a preceding instruction. Borland puts an
+    # FWAIT (0x9B) in front of most x87 opcodes; the linear sweep folds it into
+    # the instruction, but recover() also decodes the bare ESC one byte later,
+    # so the same x87 op lands in the list twice and the lifter emits it twice.
+    # Doubled fmul/fdiv squared the scale factors and the doubled fstp then
+    # stored the unscaled value on top -- the sin/cos tables came out garbage
+    # and every ball ended up 256x off screen, so no pet was ever drawn.
+    deduped = []
+    for idx, inst in enumerate(instructions):
+        prev = instructions[idx - 1] if idx else None
+        if (prev is not None
+                and prev.raw and prev.raw[0] == 0x9B
+                and prev.offset + 1 == inst.offset
+                and prev.offset + prev.length == inst.offset + inst.length):
+            continue                        # the bare ESC behind an FWAIT
+        deduped.append(inst)
+    instructions = deduped
+
     functions = detect_functions(seg, instructions, forced_entries)
 
     return instructions, functions, reloc_map

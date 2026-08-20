@@ -42,7 +42,9 @@ void catz_sp_check(const char *nm);
 #define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); \
     fprintf(stderr, "FN %s\n", (n)); } while (0)
 #else
-#define TRACE_FN(n) (g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n))
+extern int g_fncount;
+void catz_fn_hit(const char *n);
+#define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); if (g_fncount) catz_fn_hit(n); } while (0)
 #endif
 
 /* ── Flag bits ─────────────────────────────────────────────── */
@@ -201,8 +203,16 @@ void catz_watch_frame(uint16_t seg, uint16_t off, int on);
 #define catz_watch_frame(s, o, n) ((void)0)
 #endif
 
+/* Selector watch: attribute every byte written into a given selector (and its
+   next tile) to the most recently entered function, so we can see who actually
+   rasterises into a surface -- and who only clears it. */
+extern uint16_t g_wsel;
+void catz_sel_write(uint16_t seg, uint16_t off);
+#define CATZ_SELW(s, o) do { if (g_wsel == 0xFFFFu) catz_sel_write((s), 0); else if (g_wsel && ((s) == g_wsel || (s) == (uint16_t)(g_wsel + 1))) catz_sel_write((s), (o)); } while (0)
+
 static inline void mem_write8(CPU *cpu, uint16_t seg, uint16_t off, uint8_t val) {
     CATZ_WATCH_CHECK(seg, off, val);
+    CATZ_SELW(seg, off);
     cpu->mem[seg_off(cpu, seg, off)] = val;
 }
 
@@ -220,6 +230,7 @@ static inline uint16_t mem_read16(CPU *cpu, uint16_t seg, uint16_t off) {
 static inline void mem_write16(CPU *cpu, uint16_t seg, uint16_t off, uint16_t val) {
     uint32_t addr = seg_off(cpu, seg, off);
     CATZ_WATCH_CHECK(seg, off, val);
+    CATZ_SELW(seg, off);
 #ifdef CATZ_WATCH_EXC
     {   /* Stack-overflow detector: log the first time sp descends below a low
          * watermark — catches whatever is consuming the stack toward underflow. */
@@ -452,6 +463,49 @@ static inline void fpu_pop(CPU *cpu) {
     cpu->fpu_top = (cpu->fpu_top + 1) & 7;
 }
 
+/* FPREM: ST(0) = ST(0) - ST(1)*trunc(ST(0)/ST(1)), with the low three bits of
+   the quotient reported in C1/C3/C0. This is how the C runtime's sin/cos reduce
+   their argument, so without it every angle past +-pi/2 came back with the wrong
+   sign -- the ball rotation tables were unusable. The real 8087 reduces at most
+   2^63 per execution and sets C2 to ask for another round; a full reduction in
+   one step is exact here and simply reports C2 = 0 (done). */
+static inline void fpu_prem(CPU *cpu) {
+    double a = cpu->st[0], b = cpu->st[1];
+    cpu->fpu_status &= ~(FPU_C0 | FPU_C1 | FPU_C2 | FPU_C3);
+    if (b == 0.0 || a != a || b != b || a == a * 2.0) {   /* /0, NaN, or inf */
+        cpu->fpu_status |= FPU_C2;
+        cpu->st[0] = a - a;                               /* NaN */
+        return;
+    }
+    double q = a / b;
+    q = (q < 0.0) ? ceil(q) : floor(q);                   /* truncate toward 0 */
+    cpu->st[0] = a - b * q;
+    unsigned long long qi = (unsigned long long)(q < 0.0 ? -q : q);
+    if (qi & 1u) cpu->fpu_status |= FPU_C1;
+    if (qi & 2u) cpu->fpu_status |= FPU_C3;
+    if (qi & 4u) cpu->fpu_status |= FPU_C0;
+}
+
+/* FXAM: classify ST(0) into C3/C2/C0, sign into C1. */
+static inline void fpu_xam(CPU *cpu) {
+    double v = cpu->st[0];
+    cpu->fpu_status &= ~(FPU_C0 | FPU_C1 | FPU_C2 | FPU_C3);
+    if (v < 0.0 || (v == 0.0 && 1.0 / v < 0.0)) cpu->fpu_status |= FPU_C1;
+    if (v != v) {
+        cpu->fpu_status |= FPU_C0;                        /* NaN */
+    } else if (v == 0.0) {
+        cpu->fpu_status |= FPU_C3;                        /* zero */
+    } else if (v == v * 2.0) {
+        cpu->fpu_status |= FPU_C0 | FPU_C2;               /* infinity */
+    } else {
+        cpu->fpu_status |= FPU_C2;                        /* normal finite */
+    }
+}
+
+/* x87 condition codes live in the status word only -- no x87 instruction
+   writes AH. Mirroring them into AH here clobbered the sign bit the C
+   runtime's sin() stashes there across its argument reduction, so every
+   negative angle came back with the wrong sign. FSTSW AX is the only path.  */
 static inline void fpu_compare(CPU *cpu, double a, double b) {
     cpu->fpu_status &= ~(FPU_C0 | FPU_C2 | FPU_C3);
     if (a != a || b != b) {
@@ -465,8 +519,6 @@ static inline void fpu_compare(CPU *cpu, double a, double b) {
         /* Equal */
         cpu->fpu_status |= FPU_C3;
     }
-    /* Mirror to CPU flags for FSTSW AX / SAHF pattern */
-    cpu->ah = (uint8_t)(cpu->fpu_status >> 8);
 }
 
 /* FPU memory read/write helpers (placeholder - uses seg:off addressing) */
@@ -514,6 +566,59 @@ static inline void fpu_write_i16(CPU *cpu, uint16_t seg, uint16_t off, int32_t v
 
 static inline void fpu_write_i32(CPU *cpu, uint16_t seg, uint16_t off, int32_t val) {
     mem_write32(cpu, seg, off, (uint32_t)val);
+}
+
+/* fild/fistp qword. The 64-bit forms were being lifted as 16-bit, so the C
+   runtime's ftol wrote only the low word of its result and returned a stale
+   DX -- every float-to-long in the engine came back garbage above 65535. */
+/* 80-bit extended. These were read and written as plain doubles, which turned
+   every tword constant into nonsense -- the C runtime keeps pi/4 (its sin/cos
+   argument-reduction divisor) as a tword, so the reduction divided by garbage
+   and every angle past the first octant came back with the wrong sign. */
+static inline double fpu_read_f80(CPU *cpu, uint16_t seg, uint16_t off) {
+    uint64_t m = (uint64_t)mem_read32(cpu, seg, off) |
+                 ((uint64_t)mem_read32(cpu, seg, (uint16_t)(off + 4)) << 32);
+    uint16_t se = mem_read16(cpu, seg, (uint16_t)(off + 8));
+    int neg = (se >> 15) & 1;
+    int exp = se & 0x7FFF;
+    double v;
+    if (exp == 0x7FFF)
+        v = (m << 1) ? (double)NAN : (double)INFINITY;
+    else if (exp == 0 && m == 0)
+        v = 0.0;
+    else                      /* explicit integer bit: value = m * 2^(exp-16383-63) */
+        v = ldexp((double)m, (exp ? exp : 1) - 16383 - 63);
+    return neg ? -v : v;
+}
+
+static inline void fpu_write_f80(CPU *cpu, uint16_t seg, uint16_t off, double v) {
+    int neg = (v < 0.0) || (v == 0.0 && 1.0 / v < 0.0);
+    double a = neg ? -v : v;
+    uint16_t se;
+    uint64_t m;
+    if (a != a)            { se = 0x7FFF; m = ~(uint64_t)0; }
+    else if (a == a * 2.0 && a != 0.0) { se = 0x7FFF; m = (uint64_t)1 << 63; }
+    else if (a == 0.0)     { se = 0; m = 0; }
+    else {
+        int e;
+        double f = frexp(a, &e);          /* 0.5 <= f < 1 */
+        m = (uint64_t)ldexp(f, 64);       /* 2^63 <= m < 2^64 */
+        se = (uint16_t)(e - 1 + 16383);
+    }
+    if (neg) se |= 0x8000;
+    mem_write32(cpu, seg, off, (uint32_t)(m & 0xFFFFFFFFu));
+    mem_write32(cpu, seg, (uint16_t)(off + 4), (uint32_t)(m >> 32));
+    mem_write16(cpu, seg, (uint16_t)(off + 8), se);
+}
+
+static inline int64_t fpu_read_i64(CPU *cpu, uint16_t seg, uint16_t off) {
+    return (int64_t)((uint64_t)mem_read32(cpu, seg, off) |
+                     ((uint64_t)mem_read32(cpu, seg, (uint16_t)(off + 4)) << 32));
+}
+
+static inline void fpu_write_i64(CPU *cpu, uint16_t seg, uint16_t off, int64_t val) {
+    mem_write32(cpu, seg, off, (uint32_t)((uint64_t)val & 0xFFFFFFFFu));
+    mem_write32(cpu, seg, (uint16_t)(off + 4), (uint32_t)((uint64_t)val >> 32));
 }
 
 /* ── CPU lifecycle ─────────────────────────────────────────── */

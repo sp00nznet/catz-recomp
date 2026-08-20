@@ -544,6 +544,10 @@ class NELifter(Lifter):
                 self._emit(f'fpu_compare(cpu, cpu->st[0], cpu->st[1]); fpu_pop(cpu);', orig)
         elif op == 'fcompp':
             self._emit(f'fpu_compare(cpu, cpu->st[0], cpu->st[1]); fpu_pop(cpu); fpu_pop(cpu);', orig)
+        elif op == 'fprem' or op == 'fprem1':
+            self._emit('fpu_prem(cpu);', orig)
+        elif op == 'fxam':
+            self._emit('fpu_xam(cpu);', orig)
         elif op == 'ftst':
             self._emit(f'fpu_compare(cpu, cpu->st[0], 0.0);', orig)
         elif op == 'fucom':
@@ -710,7 +714,7 @@ class NELifter(Lifter):
         if 'qword' in operand_str:
             return f'fpu_read_f64(cpu, {seg}, {off})'
         elif 'tword' in operand_str:
-            return f'fpu_read_f64(cpu, {seg}, {off}) /* tword approx */'
+            return f'fpu_read_f80(cpu, {seg}, {off})'
         else:  # dword
             return f'fpu_read_f32(cpu, {seg}, {off})'
 
@@ -720,13 +724,15 @@ class NELifter(Lifter):
         if 'qword' in operand_str:
             return f'fpu_write_f64(cpu, {seg}, {off}, {value});'
         elif 'tword' in operand_str:
-            return f'fpu_write_f64(cpu, {seg}, {off}, {value}); /* tword approx */'
+            return f'fpu_write_f80(cpu, {seg}, {off}, {value});'
         else:  # dword
             return f'fpu_write_f32(cpu, {seg}, {off}, {value});'
 
     def _fpu_mem_read_int(self, inst, operand_str: str) -> str:
         """Generate C expression to read FPU integer memory operand."""
         seg, off = self._fpu_mem_expr(inst, operand_str)
+        if 'qword' in operand_str:
+            return f'fpu_read_i64(cpu, {seg}, {off})'
         if 'dword' in operand_str:
             return f'fpu_read_i32(cpu, {seg}, {off})'
         else:  # word
@@ -735,6 +741,9 @@ class NELifter(Lifter):
     def _fpu_mem_write_int(self, inst, operand_str: str, value: str) -> str:
         """Generate C statement to write integer to FPU memory."""
         seg, off = self._fpu_mem_expr(inst, operand_str)
+        if 'qword' in operand_str:
+            # 64-bit; the caller's `value` is narrowed to int32, so redo the cast
+            return f'fpu_write_i64(cpu, {seg}, {off}, (int64_t)cpu->st[0]);'
         if 'dword' in operand_str:
             return f'fpu_write_i32(cpu, {seg}, {off}, {value});'
         else:  # word

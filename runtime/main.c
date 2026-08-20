@@ -277,8 +277,71 @@ static int load_image(CPU *cpu, const char *path)
 static void catz_watch_init(void);
 #endif
 
+int g_fncount;
+static struct { const char *n; unsigned long c; } g_fnc[8192];
+void catz_fn_hit(const char *n) {
+    uintptr_t h = ((uintptr_t)n >> 3) * 2654435761u;
+    for (unsigned k = 0; k < 8192; k++) {
+        unsigned x = (unsigned)((h + k) & 8191u);
+        if (!g_fnc[x].n) { g_fnc[x].n = n; g_fnc[x].c = 1; return; }
+        if (g_fnc[x].n == n) { g_fnc[x].c++; return; }
+    }
+}
+static void fnc_report(void) {
+    for (int i = 0; i < 8192; i++)
+        if (g_fnc[i].n) fprintf(stderr, "[fnc] %s %lu\n", g_fnc[i].n, g_fnc[i].c);
+}
+uint16_t g_wsel;
+static struct { const char *n; uint16_t s; unsigned long c; } g_selw[4096];
+static int g_nselw;
+void catz_sel_write(uint16_t seg, uint16_t off) {
+    {   static int inited; static long lo = -1, hi = -1;
+        if (!inited) { inited = 1;
+            const char *a = getenv("CATZ_WATCH_LO"), *b = getenv("CATZ_WATCH_HI");
+            if (a) lo = strtol(a, NULL, 16);
+            if (b) hi = strtol(b, NULL, 16); }
+        if (lo >= 0 && off >= lo && off <= hi) {
+            static int nn;
+            const char *fn = g_fn_ring[(g_fn_ring_pos - 1) & (CATZ_FN_RING_SIZE - 1)];
+            if (nn++ < 4000)
+                fprintf(stderr, "[w] %04X:%04X by %s\n", seg, off, fn ? fn : "?");
+        } }
+    if (g_wsel != 0xFFFFu) {
+        static int shown;
+        if (!shown) { shown = 1;
+            fprintf(stderr, "[selw] first write to %04X, ring tail (newest first):\n", seg);
+            for (int k = 1; k <= 60; k++) {
+                const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)k) & (CATZ_FN_RING_SIZE - 1)];
+                fprintf(stderr, "   %2d %s\n", k, r ? r : "?");
+            }
+        }
+    }
+    const char *n = g_fn_ring[(g_fn_ring_pos - 1) & (CATZ_FN_RING_SIZE - 1)];
+    if (!n) n = "?";
+    if (g_wsel != 0xFFFFu) seg = 0;
+    uintptr_t h = ((uintptr_t)n >> 3) * 31u + seg * 2654435761u;
+    for (unsigned k = 0; k < 8192; k++) {
+        unsigned x = (unsigned)((h + k) & 4095u);
+        if (!g_selw[x].n) { g_selw[x].n = n; g_selw[x].s = seg; g_selw[x].c = 1; return; }
+        if (g_selw[x].n == n && g_selw[x].s == seg) { g_selw[x].c++; return; }
+    }
+}
+static void selw_report(void) {
+    for (int r = 0; r < 300; r++) {
+        int b = -1;
+        for (int i = 0; i < 4096; i++)
+            if (g_selw[i].n && g_selw[i].c && (b < 0 || g_selw[i].c > g_selw[b].c)) b = i;
+        if (b < 0) break;
+        fprintf(stderr, "[selw] %04X %-20s %lu\n", g_selw[b].s, g_selw[b].n, g_selw[b].c);
+        g_selw[b].c = 0;
+    }
+}
+
 int main(int argc, char *argv[])
 {
+    { const char *ws = getenv("CATZ_WATCH_SEL");
+      if (ws) { g_wsel = (uint16_t)strtoul(ws, NULL, 16); atexit(selw_report); } }
+    if (getenv("CATZ_FN_COUNT")) { g_fncount = 1; atexit(fnc_report); }
     const char *img = (argc > 1) ? argv[1] : CATZ_IMAGE_PATH;
 
     /* Unbuffered: the engine dies by crash/abort often enough that a lost
