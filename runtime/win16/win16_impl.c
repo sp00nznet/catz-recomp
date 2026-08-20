@@ -488,6 +488,30 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
  * guest memory straight onto the real destination DC. This is the engine's
  * only path to the screen — it was a no-op returning TRUE, which is why the
  * window stayed blank even when the engine was drawing. */
+/* CATZ_DUMP_WIN=<n>: replay every blit into a private canvas and write it out
+   after n blits -- exactly what reaches the window, without screen capture. */
+static uint8_t g_canvas[768][1024];
+static uint8_t g_canvas_pal[256 * 4];
+static void canvas_dump(int tag) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/win%d.bmp",
+             getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".", tag);
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    uint32_t nbits = 1024u * 768u, offb = 14 + 40 + 256 * 4, fsz = offb + nbits;
+    uint8_t fh[14] = {'B','M'};
+    memcpy(fh + 2, &fsz, 4); memcpy(fh + 10, &offb, 4);
+    BITMAPINFOHEADER ih; memset(&ih, 0, sizeof ih);
+    ih.biSize = 40; ih.biWidth = 1024; ih.biHeight = -768; ih.biPlanes = 1;
+    ih.biBitCount = 8; ih.biCompression = BI_RGB; ih.biSizeImage = nbits;
+    ih.biClrUsed = 256;
+    fwrite(fh, 1, 14, f); fwrite(&ih, 1, 40, f);
+    fwrite(g_canvas_pal, 1, 256 * 4, f);
+    fwrite(g_canvas, 1, nbits, f);
+    fclose(f);
+    fprintf(stderr, "[win] wrote %s\n", path);
+}
+
 void WING_WINGSTRETCHBLT(CPU *cpu) {
     int hSrc  = (int16_t)a16(cpu, 0),  wSrc  = (int16_t)a16(cpu, 2);
     int ySrc  = (int16_t)a16(cpu, 4),  xSrc  = (int16_t)a16(cpu, 6);
@@ -615,6 +639,29 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
                 hist[best] = 0;
             }
             fprintf(stderr, "\n");
+        }
+    }
+    {   const char *cw = getenv("CATZ_DUMP_WIN");
+        if (cw) {
+            static int nblt;
+            uint32_t st = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+            const uint8_t *sp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+            memcpy(g_canvas_pal, g_wing[i].pal, sizeof g_canvas_pal);
+            for (int dy = 0; dy < hDest && hSrc > 0; dy++) {
+                int oy = yDest + dy;
+                if (oy < 0 || oy >= 768) continue;
+                int sy = ySrc + (int)((long)dy * hSrc / hDest);
+                if (sy < 0 || sy >= g_wing[i].h) continue;
+                for (int dx = 0; dx < wDest && wSrc > 0; dx++) {
+                    int ox = xDest + dx;
+                    if (ox < 0 || ox >= 1024) continue;
+                    int sx = xSrc + (int)((long)dx * wSrc / wDest);
+                    if (sx < 0 || sx >= g_wing[i].w) continue;
+                    g_canvas[oy][ox] = sp[(uint32_t)sy * st + (uint32_t)sx];
+                }
+            }
+            if (++nblt == atoi(cw)) canvas_dump(1);
+            if (nblt == atoi(cw) * 2) canvas_dump(2);
         }
     }
     const void *bits = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
