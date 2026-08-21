@@ -114,7 +114,6 @@ void USER_CHECKMENUITEM(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKMENUITEM"); cpu->
 void USER_CLIPCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("CLIPCURSOR"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_CREATEDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOG"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_CREATEDIALOGPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOGPARAM"); cpu->ax = 0; cpu->sp += 4 + 16; }
-void USER_DEFWINDOWPROC(CPU *cpu) { (void)cpu; WIN16_LOG("DEFWINDOWPROC"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_DRAWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("DRAWTEXT"); cpu->ax = 0; cpu->sp += 4 + 14; }

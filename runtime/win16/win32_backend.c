@@ -175,8 +175,14 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
     hwnd_proc(hWnd, &pseg, &poff);
     if (pseg && forward_to_guest(msg)) {
         uint16_t gh = put_hwnd(hWnd);
-        return call_guest_wndproc(pseg, poff, gh, (uint16_t)msg,
-                                  (uint16_t)wParam, (uint32_t)lParam);
+        LRESULT gr = call_guest_wndproc(pseg, poff, gh, (uint16_t)msg,
+                                        (uint16_t)wParam, (uint32_t)lParam);
+        /* The engine runs a shutdown chain on WM_CLOSE but never calls
+           DestroyWindow or PostQuitMessage, so the window stayed up and the
+           title-bar X did nothing. Let the guest run (it saves the pet), then
+           apply the default: destroy the window. */
+        if (msg == WM_CLOSE) return DefWindowProc(hWnd, msg, wParam, lParam);
+        return gr;
     }
     return DefWindowProc(hWnd, msg, wParam, lParam);
 }
@@ -266,6 +272,23 @@ void USER_CREATEWINDOW(CPU *cpu) {
             hw ? 0UL : (unsigned long)GetLastError());
     cpu->ax = gh;
     b_ret(cpu, 30);
+}
+
+/* The guest WNDPROC passes everything it does not handle to DefWindowProc,
+ * which was a stub returning 0. WM_CLOSE is one of those: nothing called
+ * DestroyWindow, so clicking the playpen's X did nothing at all. Hand the
+ * message to the real DefWindowProc. Win16 window procs return a LONG in DX:AX.
+ * Args are PASCAL: hwnd, msg, wParam, lParam. */
+void USER_DEFWINDOWPROC(CPU *cpu) {
+    uint16_t gh   = b_a16(cpu, 8);
+    UINT     msg  = b_a16(cpu, 6);
+    WPARAM   wp   = b_a16(cpu, 4);
+    LPARAM   lp   = (LPARAM)(int32_t)b_a32(cpu, 0);
+    HWND     h    = get_hwnd(gh);
+    LRESULT  r    = h ? DefWindowProc(h, msg, wp, lp) : 0;
+    cpu->ax = (uint16_t)(r & 0xFFFF);
+    cpu->dx = (uint16_t)((uint32_t)r >> 16);
+    b_ret(cpu, 10);
 }
 
 /* Both of these were stubs, so nothing could ever close: the engine's WM_CLOSE
