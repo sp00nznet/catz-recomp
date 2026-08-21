@@ -87,6 +87,12 @@ static uint16_t g_wndproc_seg = 0, g_wndproc_off = 0;
 
 /* The first window created is the application frame; only it ends the app. */
 static HWND g_main_hwnd;
+/* The engine makes two windows: a framed playpen and a 640x480 WS_POPUP that
+   is its pet overlay -- the thing it would normally paint straight onto the
+   desktop. GetDC(NULL) asks for that overlay, so it has to go to the popup;
+   sending it to the framed playpen painted the pet layer's clear colour over
+   the whole pen. */
+static HWND g_screen_hwnd;
 
 static GuestClass *cls_find(const char *name) {
     for (int i = 0; i < g_ncls; i++)
@@ -261,6 +267,8 @@ void USER_CREATEWINDOW(CPU *cpu) {
                               parent, NULL, GetModuleHandle(NULL), NULL);
     uint16_t gh = hw ? put_hwnd(hw) : 0;
     if (hw && !g_main_hwnd) g_main_hwnd = hw;
+    if (hw && !g_screen_hwnd && (style & WS_POPUP) && !(style & WS_CHILD))
+        g_screen_hwnd = hw;
     if (gh) {
         g_hwnd_proc_seg[gh] = c ? c->seg : g_wndproc_seg;
         g_hwnd_proc_off[gh] = c ? c->off : g_wndproc_off;
@@ -430,7 +438,10 @@ void USER_GETDC(CPU *cpu) {
      * over whatever else is on screen, so keep the pet inside the playpen window
      * by default and hand back the frame window's DC. Set CATZ_DESKTOP=1 for the
      * original loose-on-the-desktop behaviour. */
-    if (!gw && g_main_hwnd && !getenv("CATZ_DESKTOP")) h = g_main_hwnd;
+    if (!gw && !getenv("CATZ_DESKTOP")) {
+        HWND alt = g_screen_hwnd ? g_screen_hwnd : g_main_hwnd;
+        if (alt) h = alt;
+    }
     HDC dc = GetDC(h);
     cpu->ax = dc ? put_hdc(dc) : 0;
     b_ret(cpu, 2);
