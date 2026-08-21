@@ -492,6 +492,60 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
    after n blits -- exactly what reaches the window, without screen capture. */
 static uint8_t g_canvas[768][1024];
 static uint8_t g_canvas_pal[256 * 4];
+/* CATZ_DIFF=<n>: dump what changed on a surface between consecutive blits of
+   it -- i.e. exactly what the moving sprite drew, with its bounding box. */
+static void surf_diff(CPU *cpu, int i, int nth) {
+    static uint8_t *prev; static int prev_i = -1; static int seen;
+    uint32_t st = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+    uint32_t nb = st * (uint32_t)g_wing[i].h;
+    const uint8_t *cur = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+    if (prev_i != i) { free(prev); prev = malloc(nb); prev_i = i; seen = 0;
+                       if (prev) memcpy(prev, cur, nb); return; }
+    if (!prev) return;
+    int l = g_wing[i].w, t = g_wing[i].h, r = -1, b = -1;
+    unsigned nd = 0;
+    for (int y = 0; y < g_wing[i].h; y++)
+        for (int x = 0; x < g_wing[i].w; x++)
+            if (cur[(uint32_t)y * st + x] != prev[(uint32_t)y * st + x]) {
+                nd++;
+                if (x < l) l = x; if (x > r) r = x;
+                if (y < t) t = y; if (y > b) b = y;
+            }
+    if (nd && ++seen == nth) {
+        fprintf(stderr, "[diff] surf%d %u px changed, bbox (%d,%d)-(%d,%d) %dx%d\n",
+                i, nd, l, t, r, b, r - l + 1, b - t + 1);
+        int w = r - l + 1, h = b - t + 1;
+        uint32_t ost = ((uint32_t)w + 3) & ~3u, nbits = ost * (uint32_t)h;
+        uint8_t *img = calloc(nbits, 1);
+        if (img) {
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    uint8_t c = cur[(uint32_t)(t + y) * st + (l + x)];
+                    if (c != prev[(uint32_t)(t + y) * st + (l + x)]) img[(uint32_t)y * ost + x] = c;
+                }
+            char path[512];
+            snprintf(path, sizeof path, "%s/diff.bmp",
+                     getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".");
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                uint32_t offb = 14 + 40 + 256 * 4, fsz = offb + nbits;
+                uint8_t fh[14] = {'B','M'};
+                memcpy(fh + 2, &fsz, 4); memcpy(fh + 10, &offb, 4);
+                BITMAPINFOHEADER ih; memset(&ih, 0, sizeof ih);
+                ih.biSize = 40; ih.biWidth = w; ih.biHeight = -h; ih.biPlanes = 1;
+                ih.biBitCount = 8; ih.biCompression = BI_RGB;
+                ih.biSizeImage = nbits; ih.biClrUsed = 256;
+                fwrite(fh, 1, 14, f); fwrite(&ih, 1, 40, f);
+                fwrite(g_wing[i].pal, 1, 256 * 4, f);
+                fwrite(img, 1, nbits, f); fclose(f);
+                fprintf(stderr, "[diff] wrote %s\n", path);
+            }
+            free(img);
+        }
+    }
+    memcpy(prev, cur, nb);
+}
+
 static void canvas_dump(int tag) {
     char path[512];
     snprintf(path, sizeof path, "%s/win%d.bmp",
@@ -663,6 +717,9 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             if (++nblt == atoi(cw)) canvas_dump(1);
             if (nblt == atoi(cw) * 2) canvas_dump(2);
         }
+    }
+    {   const char *cd = getenv("CATZ_DIFF");
+        if (cd && i == 0) surf_diff(cpu, i, atoi(cd));
     }
     const void *bits = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
     SetStretchBltMode(dst, COLORONCOLOR);

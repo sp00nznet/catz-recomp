@@ -279,7 +279,24 @@ static void catz_watch_init(void);
 
 int g_fncount;
 static struct { const char *n; unsigned long c; } g_fnc[8192];
+int g_watch_ds;
+/* CATZ_WATCH_DS: the WAD is an EXE, so its own code runs with DS pinned to
+   DGROUP for the whole program. Anything else means a callee clobbered it --
+   which is how a Win16 stub that forgets to pop its arguments shows up, since
+   the caller then restores DS from the wrong stack slot. Also tracks the low
+   water mark of the guest stack. */
 void catz_fn_hit(const char *n) {
+    if (g_watch_ds && g_cpu) {
+        static unsigned long ncall; static uint16_t lo = 0xFFFF; static int shown;
+        if (g_cpu->sp < lo) lo = g_cpu->sp;
+        if (++ncall % 200000 == 0)
+            fprintf(stderr, "[sp] after %lu calls: sp=%04X ss=%04X min=%04X\n",
+                    ncall, g_cpu->sp, g_cpu->ss, lo);
+        if (n && n[3] == '0' && n[4] == '6' && n[5] == '3'
+            && g_cpu->ds != CATZ_AUTO_DATA_SEG && shown++ < 12)
+            fprintf(stderr, "[dsbad] %s ds=%04X\n", n, g_cpu->ds);
+        if (!g_fncount) return;
+    }
     uintptr_t h = ((uintptr_t)n >> 3) * 2654435761u;
     for (unsigned k = 0; k < 8192; k++) {
         unsigned x = (unsigned)((h + k) & 8191u);
@@ -305,6 +322,11 @@ void catz_sel_write(uint16_t seg, uint16_t off) {
             const char *fn = g_fn_ring[(g_fn_ring_pos - 1) & (CATZ_FN_RING_SIZE - 1)];
             if (nn++ < 4000)
                 fprintf(stderr, "[w] %04X:%04X by %s\n", seg, off, fn ? fn : "?");
+            if (nn == 800)
+                for (int q = 1; q <= 20; q++) {
+                    const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)q) & (CATZ_FN_RING_SIZE - 1)];
+                    fprintf(stderr, "[wring] %2d %s\n", q, r ? r : "?");
+                }
         } }
     if (g_wsel != 0xFFFFu) {
         static int shown;
@@ -342,6 +364,7 @@ int main(int argc, char *argv[])
     { const char *ws = getenv("CATZ_WATCH_SEL");
       if (ws) { g_wsel = (uint16_t)strtoul(ws, NULL, 16); atexit(selw_report); } }
     if (getenv("CATZ_FN_COUNT")) { g_fncount = 1; atexit(fnc_report); }
+    if (getenv("CATZ_WATCH_DS")) g_watch_ds = 1;
     const char *img = (argc > 1) ? argv[1] : CATZ_IMAGE_PATH;
 
     /* Unbuffered: the engine dies by crash/abort often enough that a lost

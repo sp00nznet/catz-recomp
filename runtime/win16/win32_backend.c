@@ -399,9 +399,15 @@ void USER_GETDC(CPU *cpu) {
     uint16_t gw = b_a16(cpu, 0);
     HWND h = get_hwnd(gw);
     /* GetDC(NULL) is the SCREEN dc, not an error -- and it is what the engine
-     * asks for: Petz draw onto the desktop. Rejecting it left
-     * XDrawPort::OpenScreenDrawPort with no DC, so every frame drew its sprites
-     * and then reported "Closing already closed screen DC" instead of blitting. */
+     * asks for: Catz walk on the desktop, so OpenScreenDrawPort wants the real
+     * screen. Rejecting it left that port with no DC and every frame reported
+     * "Closing already closed screen DC" instead of blitting.
+     *
+     * Painting the desktop directly is genuine Catz behaviour but it scribbles
+     * over whatever else is on screen, so keep the pet inside the playpen window
+     * by default and hand back the frame window's DC. Set CATZ_DESKTOP=1 for the
+     * original loose-on-the-desktop behaviour. */
+    if (!gw && g_main_hwnd && !getenv("CATZ_DESKTOP")) h = g_main_hwnd;
     HDC dc = GetDC(h);
     cpu->ax = dc ? put_hdc(dc) : 0;
     b_ret(cpu, 2);

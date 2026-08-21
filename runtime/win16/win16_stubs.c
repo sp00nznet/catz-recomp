@@ -51,13 +51,13 @@ void GDI_STRETCHBLT(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHBLT"); cpu->ax = 0;
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
 
 /* ===== KERNEL ===== */
-void KERNEL_GETPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPROFILEINT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETPROFILEINT"); }
-void KERNEL_GETSYSTEMDIRECTORY(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSTEMDIRECTORY"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETSYSTEMDIRECTORY"); }
-void KERNEL_GLOBALDOSALLOC(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSALLOC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GLOBALDOSALLOC"); }
-void KERNEL_GLOBALDOSFREE(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSFREE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GLOBALDOSFREE"); }
-void KERNEL_WINEXEC(CPU *cpu) { (void)cpu; WIN16_LOG("WINEXEC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINEXEC"); }
+void KERNEL_GETPROFILEINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETPROFILEINT"); cpu->ax = 0; cpu->sp += 4 + 10; }
+void KERNEL_GETSYSTEMDIRECTORY(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSTEMDIRECTORY"); cpu->ax = 0; cpu->sp += 4 + 6; }
+void KERNEL_GLOBALDOSALLOC(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSALLOC"); cpu->ax = 0; cpu->sp += 4 + 4; }
+void KERNEL_GLOBALDOSFREE(CPU *cpu) { (void)cpu; WIN16_LOG("GLOBALDOSFREE"); cpu->ax = 0; cpu->sp += 4 + 2; }
+void KERNEL_WINEXEC(CPU *cpu) { (void)cpu; WIN16_LOG("WINEXEC"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void KERNEL_WRITEPRIVATEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("WRITEPRIVATEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4 + 16; }
-void KERNEL_WRITEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("WRITEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WRITEPROFILESTRING"); }
+void KERNEL_WRITEPROFILESTRING(CPU *cpu) { (void)cpu; WIN16_LOG("WRITEPROFILESTRING"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void KERNEL__HREAD(CPU *cpu) { (void)cpu; WIN16_LOG("_HREAD"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void KERNEL___AHSHIFT(CPU *cpu) { (void)cpu; WIN16_LOG("__AHSHIFT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("__AHSHIFT"); }
 
@@ -108,44 +108,44 @@ void SOSLIB03_SOSTIMERUNINITSYSTEM(CPU *cpu) { (void)cpu; WIN16_LOG("SOSTIMERUNI
 void TOOLHELP_TIMERCOUNT(CPU *cpu) { (void)cpu; WIN16_LOG("TIMERCOUNT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 
 /* ===== USER ===== */
-void USER_BRINGWINDOWTOTOP(CPU *cpu) { (void)cpu; WIN16_LOG("BRINGWINDOWTOTOP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("BRINGWINDOWTOTOP"); }
-void USER_CHECKDLGBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKDLGBUTTON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("CHECKDLGBUTTON"); }
+void USER_BRINGWINDOWTOTOP(CPU *cpu) { (void)cpu; WIN16_LOG("BRINGWINDOWTOTOP"); cpu->ax = 0; cpu->sp += 4 + 2; }
+void USER_CHECKDLGBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKDLGBUTTON"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CHECKMENUITEM(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKMENUITEM"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CLIENTTOSCREEN(CPU *cpu) { (void)cpu; WIN16_LOG("CLIENTTOSCREEN"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CLIPCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("CLIPCURSOR"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_CREATEDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOG"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_CREATEDIALOGPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOGPARAM"); cpu->ax = 0; cpu->sp += 4 + 16; }
 void USER_DEFWINDOWPROC(CPU *cpu) { (void)cpu; WIN16_LOG("DEFWINDOWPROC"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("DESTROYICON"); }
+void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_DRAWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("DRAWTEXT"); cpu->ax = 0; cpu->sp += 4 + 14; }
-void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ENABLEWINDOW"); }
+void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_ENUMWINDOWS(CPU *cpu) { (void)cpu; WIN16_LOG("ENUMWINDOWS"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_FRAMERECT(CPU *cpu) { (void)cpu; WIN16_LOG("FRAMERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETACTIVEWINDOW"); }
+void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE"); cpu->ax = 0; cpu->sp += 4 + 2; }
-void USER_GETCLASSNAME(CPU *cpu) { (void)cpu; WIN16_LOG("GETCLASSNAME"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETCLASSNAME"); }
-void USER_GETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("GETCURSORPOS"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETCURSORPOS"); }
+void USER_GETCLASSNAME(CPU *cpu) { (void)cpu; WIN16_LOG("GETCLASSNAME"); cpu->ax = 0; cpu->sp += 4 + 8; }
+void USER_GETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("GETCURSORPOS"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_GETDESKTOPWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETDESKTOPWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETDLGITEMINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETDLGITEMINT"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_GETFOCUS(CPU *cpu) { (void)cpu; WIN16_LOG("GETFOCUS"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETSYSCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSCOLOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_GETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_GETWINDOWPLACEMENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWPLACEMENT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETWINDOWPLACEMENT"); }
-void USER_GETWINDOWWORD(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWWORD"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("GETWINDOWWORD"); }
-void USER_INFLATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INFLATERECT"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("INFLATERECT"); }
-void USER_ISDIALOGMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("ISDIALOGMESSAGE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISDIALOGMESSAGE"); }
-void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKED"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISDLGBUTTONCHECKED"); }
-void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISICONIC"); }
-void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("ISWINDOWVISIBLE"); }
+void USER_GETWINDOWPLACEMENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWPLACEMENT"); cpu->ax = 0; cpu->sp += 4 + 6; }
+void USER_GETWINDOWWORD(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWWORD"); cpu->ax = 0; cpu->sp += 4 + 4; }
+void USER_INFLATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INFLATERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
+void USER_ISDIALOGMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("ISDIALOGMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 6; }
+void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKED"); cpu->ax = 0; cpu->sp += 4 + 4; }
+void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4 + 2; }
+void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_OFFSETRECT(CPU *cpu) { (void)cpu; WIN16_LOG("OFFSETRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_REDRAWWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("REDRAWWINDOW"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_RELEASECAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("RELEASECAPTURE"); cpu->ax = 0; cpu->sp += 4 + 0; }
-void USER_SENDDLGITEMMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDDLGITEMMESSAGE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SENDDLGITEMMESSAGE"); }
+void USER_SENDDLGITEMMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDDLGITEMMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_SENDMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void USER_SETCAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("SETCAPTURE"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SETCAPTURE"); }
+void USER_SETCAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("SETCAPTURE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SETCLASSWORD(CPU *cpu) { (void)cpu; WIN16_LOG("SETCLASSWORD"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_SETCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSORPOS"); cpu->ax = 0; cpu->sp += 4 + 4; }
@@ -155,9 +155,9 @@ void USER_SETSCROLLRANGE(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLRANGE"); cpu
 void USER_SETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_SETWINDOWPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWPOS"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_SETWINDOWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWTEXT"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void USER_SWAPMOUSEBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("SWAPMOUSEBUTTON"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SWAPMOUSEBUTTON"); }
-void USER_SYSTEMPARAMETERSINFO(CPU *cpu) { (void)cpu; WIN16_LOG("SYSTEMPARAMETERSINFO"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SYSTEMPARAMETERSINFO"); }
-void USER_WINHELP(CPU *cpu) { (void)cpu; WIN16_LOG("WINHELP"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("WINHELP"); }
+void USER_SWAPMOUSEBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("SWAPMOUSEBUTTON"); cpu->ax = 0; cpu->sp += 4 + 2; }
+void USER_SYSTEMPARAMETERSINFO(CPU *cpu) { (void)cpu; WIN16_LOG("SYSTEMPARAMETERSINFO"); cpu->ax = 0; cpu->sp += 4 + 10; }
+void USER_WINHELP(CPU *cpu) { (void)cpu; WIN16_LOG("WINHELP"); cpu->ax = 0; cpu->sp += 4 + 12; }
 
 /* ===== WIN87EM ===== */
 void WIN87EM___FPMATH(CPU *cpu) { (void)cpu; WIN16_LOG("__FPMATH"); cpu->ax = 0; cpu->sp += 4 + 0; }

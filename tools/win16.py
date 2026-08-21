@@ -82,6 +82,28 @@ _SEED = {
 # `cpu->sp += 4 (far retaddr) + purge`, or `retf` boundaries corrupt. Keyed by
 # (MODULE, API). Functions not listed default to 0 with a runtime warning.
 PURGE = {
+    # ---- argument sizes that were missing ----
+    # A stub with no entry here pops only the far return address and leaves its
+    # arguments on the stack. Win16 is PASCAL: the callee pops them. Every such
+    # call shifted the caller's frame, so its epilogue restored DS from the wrong
+    # slot -- GetCursorPos alone left the WAD's frame loop running with DS=0,
+    # which stored a null-segment PetParams and made the pet's colour ramp
+    # unreadable, so every ball plotted as colour 0 (a black cat on black).
+    ('USER', 'GETCURSORPOS'): 4,        ('USER', 'BRINGWINDOWTOTOP'): 2,
+    ('USER', 'CHECKDLGBUTTON'): 6,      ('USER', 'DESTROYICON'): 2,
+    ('USER', 'ENABLEWINDOW'): 4,        ('USER', 'GETACTIVEWINDOW'): 0,
+    ('USER', 'GETCLASSNAME'): 8,        ('USER', 'GETWINDOWPLACEMENT'): 6,
+    ('USER', 'GETWINDOWWORD'): 4,       ('USER', 'INFLATERECT'): 8,
+    ('USER', 'ISDIALOGMESSAGE'): 6,     ('USER', 'ISDLGBUTTONCHECKED'): 4,
+    ('USER', 'ISICONIC'): 2,            ('USER', 'ISWINDOWVISIBLE'): 2,
+    ('USER', 'SENDDLGITEMMESSAGE'): 12, ('USER', 'SETCAPTURE'): 2,
+    ('USER', 'SWAPMOUSEBUTTON'): 2,     ('USER', 'SYSTEMPARAMETERSINFO'): 10,
+    ('USER', 'WINHELP'): 12,            ('USER', 'SETWINDOWWORD'): 6,
+    ('USER', 'SETWINDOWLONG'): 8,       ('USER', 'GETSYSTEMMETRICS'): 2,
+    ('USER', 'SETSYSMODALWINDOW'): 2,   ('USER', 'GETNEXTWINDOW'): 4,
+    ('KERNEL', 'GETPROFILEINT'): 10,    ('KERNEL', 'GETSYSTEMDIRECTORY'): 6,
+    ('KERNEL', 'GLOBALDOSALLOC'): 4,    ('KERNEL', 'GLOBALDOSFREE'): 2,
+    ('KERNEL', 'WINEXEC'): 6,           ('KERNEL', 'WRITEPROFILESTRING'): 12,
     # ---- KERNEL ----
     ('KERNEL', 'GLOBALALLOC'): 6, ('KERNEL', 'GLOBALREALLOC'): 8,
     ('KERNEL', 'GLOBALFREE'): 2, ('KERNEL', 'GLOBALLOCK'): 2,

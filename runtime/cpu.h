@@ -43,8 +43,9 @@ void catz_sp_check(const char *nm);
     fprintf(stderr, "FN %s\n", (n)); } while (0)
 #else
 extern int g_fncount;
+extern int g_watch_ds;
 void catz_fn_hit(const char *n);
-#define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); if (g_fncount) catz_fn_hit(n); } while (0)
+#define TRACE_FN(n) do { g_fn_ring[(g_fn_ring_pos++) & (CATZ_FN_RING_SIZE-1)] = (n); if (g_fncount | g_watch_ds) catz_fn_hit(n); } while (0)
 #endif
 
 /* ── Flag bits ─────────────────────────────────────────────── */
