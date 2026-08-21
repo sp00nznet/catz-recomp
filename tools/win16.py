@@ -89,6 +89,9 @@ PURGE = {
     # slot -- GetCursorPos alone left the WAD's frame loop running with DS=0,
     # which stored a null-segment PetParams and made the pet's colour ramp
     # unreadable, so every ball plotted as colour 0 (a black cat on black).
+    # HMI Sound Operating System: PASCAL too -- the call sites push and never
+    # 'add sp' afterwards.
+    ('SOSLIB03', 'SOSDIGIDETECTINIT'): 4, ('SOSLIB03', 'SOSDIGIUSERSERVICE'): 2,
     ('USER', 'GETCURSORPOS'): 4,        ('USER', 'BRINGWINDOWTOTOP'): 2,
     ('USER', 'CHECKDLGBUTTON'): 6,      ('USER', 'DESTROYICON'): 2,
     ('USER', 'ENABLEWINDOW'): 4,        ('USER', 'GETACTIVEWINDOW'): 0,
