@@ -111,7 +111,6 @@ void TOOLHELP_TIMERCOUNT(CPU *cpu) { (void)cpu; WIN16_LOG("TIMERCOUNT"); cpu->ax
 void USER_BRINGWINDOWTOTOP(CPU *cpu) { (void)cpu; WIN16_LOG("BRINGWINDOWTOTOP"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_CHECKDLGBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKDLGBUTTON"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CHECKMENUITEM(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKMENUITEM"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void USER_CLIENTTOSCREEN(CPU *cpu) { (void)cpu; WIN16_LOG("CLIENTTOSCREEN"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CLIPCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("CLIPCURSOR"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_CREATEDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOG"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_CREATEDIALOGPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOGPARAM"); cpu->ax = 0; cpu->sp += 4 + 16; }
@@ -133,14 +132,12 @@ void USER_GETSYSCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSCOLOR"); cpu->ax =
 void USER_GETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_GETWINDOWPLACEMENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWPLACEMENT"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_GETWINDOWWORD(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWWORD"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_INFLATERECT(CPU *cpu) { (void)cpu; WIN16_LOG("INFLATERECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_ISDIALOGMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("ISDIALOGMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKED"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
-void USER_OFFSETRECT(CPU *cpu) { (void)cpu; WIN16_LOG("OFFSETRECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_REDRAWWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("REDRAWWINDOW"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_RELEASECAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("RELEASECAPTURE"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_SENDDLGITEMMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDDLGITEMMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 12; }

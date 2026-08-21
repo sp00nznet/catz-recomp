@@ -718,6 +718,20 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             if (nblt == atoi(cw) * 2) canvas_dump(2);
         }
     }
+    {   const char *lb = getenv("CATZ_LOG_BLT");
+        if (lb) { static int nb;
+            int at = atoi(lb);
+            static int px = -9999, py, pw, ph, ps = -1, shown;
+            if ((xDest != px || yDest != py || wDest != pw || hDest != ph || i != ps)
+                && shown < at) {
+                shown++;
+                fprintf(stderr, "[blt] %4d surf%d src(%d,%d %dx%d) -> dst(%d,%d %dx%d)\n",
+                        nb, i, xSrc, ySrc, wSrc, hSrc, xDest, yDest, wDest, hDest);
+                px = xDest; py = yDest; pw = wDest; ph = hDest; ps = i;
+            }
+            nb++;
+        }
+    }
     {   const char *cd = getenv("CATZ_DIFF");
         if (cd && i == 0) surf_diff(cpu, i, atoi(cd));
     }
@@ -925,6 +939,47 @@ void USER_GETWINDOWRECT(CPU *cpu) {        /* HWND@4, LPRECT off@0/seg@2 */
     write_rect(cpu, a16(cpu, 2), a16(cpu, 0), 0, 0, 640, 480);
     cpu->ax = 1; ret(cpu, 6);
 }
+/* Rect utilities. OffsetRect and InflateRect were stubs that returned without
+ * touching the rect, so every rect the engine translated stayed where it was --
+ * including the one that says where the pet's saved background comes from.
+ *
+ * ClientToScreen is deliberately the identity: GetDC(NULL) hands back the
+ * playpen window's DC (see win32_backend.c), so the window's client area IS the
+ * engine's screen. GetClientRect reports 0,0,640,480 for the same reason. All
+ * three have to agree or the pet's background is fetched from the wrong place. */
+void USER_OFFSETRECT(CPU *cpu) {           /* (lpRect@4/6, dx@2, dy@0) */
+    uint16_t off = a16(cpu, 4), seg = a16(cpu, 6);
+    int dx = (int16_t)a16(cpu, 2), dy = (int16_t)a16(cpu, 0);
+    if (seg) {
+        for (int i = 0; i < 4; i++) {
+            uint16_t p = (uint16_t)(off + i * 2);
+            int v = (int16_t)mem_read16(cpu, seg, p) + ((i & 1) ? dy : dx);
+            mem_write16(cpu, seg, p, (uint16_t)v);
+        }
+    }
+    cpu->ax = 1;
+    ret(cpu, 8);
+}
+
+void USER_INFLATERECT(CPU *cpu) {          /* (lpRect@4/6, dx@2, dy@0) */
+    uint16_t off = a16(cpu, 4), seg = a16(cpu, 6);
+    int dx = (int16_t)a16(cpu, 2), dy = (int16_t)a16(cpu, 0);
+    if (seg) {
+        write_rect(cpu, seg, off,
+                   (int16_t)mem_read16(cpu, seg, off) - dx,
+                   (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 2)) - dy,
+                   (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 4)) + dx,
+                   (int16_t)mem_read16(cpu, seg, (uint16_t)(off + 6)) + dy);
+    }
+    cpu->ax = 1;
+    ret(cpu, 8);
+}
+
+void USER_CLIENTTOSCREEN(CPU *cpu) {       /* (hwnd@4, lpPoint@0/2) -- identity */
+    cpu->ax = 1;
+    ret(cpu, 6);
+}
+
 void USER_GETCLIENTRECT(CPU *cpu) {
     write_rect(cpu, a16(cpu, 2), a16(cpu, 0), 0, 0, 640, 480);
     cpu->ax = 1; ret(cpu, 6);
