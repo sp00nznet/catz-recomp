@@ -71,6 +71,20 @@ static uint16_t galloc(CPU *cpu, uint32_t bytes) {
             if (cpu->next_sel == 0) return 0;
             uint16_t s = cpu->next_sel++;
             cpu->sel_base[s] = base; g_sel_base[s] = base; g_sel_size[s] = bsz;
+            /* Blocks off the free list still hold the previous tenant's bytes.
+               Real KERNEL grows the heap with fresh (zero) pages, and this
+               engine leans on that: XApt's on-screen rect at +0xE8 is read by
+               XApt::UpdateSprites before anything writes it, so a dirty block
+               seeded the frame's update rect with whatever text had been there
+               ('ss' -> 29555). That rect drove the draw port's origin, the
+               source rect went negative, and XCopyBits' clip shifted the
+               destination by the difference -- stamping the pet at a wrong
+               offset that changed every frame. Hand back clean memory. */
+            if (base < cpu->mem_size) {
+                uint32_t n = bsz;
+                if (n > cpu->mem_size - base) n = cpu->mem_size - base;
+                memset(cpu->mem + base, 0, n);
+            }
             return s;
         }
     }
@@ -698,6 +712,13 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     {   const char *cw = getenv("CATZ_DUMP_WIN");
         if (cw) {
             static int nblt;
+            /* CATZ_DUMP_WIN_FROM: ignore everything before blit N, so the
+               canvas shows only recent frames and a trail is distinguishable
+               from art that was legitimately drawn once at startup. */
+            { static int from = -1;
+              if (from < 0) { const char *f = getenv("CATZ_DUMP_WIN_FROM");
+                              from = f ? atoi(f) : 0; }
+              if (nblt++ < from) goto skip_canvas; }
             uint32_t st = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
             const uint8_t *sp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
             memcpy(g_canvas_pal, g_wing[i].pal, sizeof g_canvas_pal);
@@ -714,8 +735,9 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
                     g_canvas[oy][ox] = sp[(uint32_t)sy * st + (uint32_t)sx];
                 }
             }
-            if (++nblt == atoi(cw)) canvas_dump(1);
+            if (nblt == atoi(cw)) canvas_dump(1);
             if (nblt == atoi(cw) * 2) canvas_dump(2);
+            skip_canvas: ;
         }
     }
     {   const char *lb = getenv("CATZ_LOG_BLT");
