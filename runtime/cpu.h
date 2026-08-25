@@ -208,12 +208,12 @@ void catz_watch_frame(uint16_t seg, uint16_t off, int on);
    next tile) to the most recently entered function, so we can see who actually
    rasterises into a surface -- and who only clears it. */
 extern uint16_t g_wsel;
-void catz_sel_write(uint16_t seg, uint16_t off);
-#define CATZ_SELW(s, o) do { if (g_wsel == 0xFFFFu) catz_sel_write((s), 0); else if (g_wsel && ((s) == g_wsel || (s) == (uint16_t)(g_wsel + 1))) catz_sel_write((s), (o)); } while (0)
+void catz_sel_write(uint16_t seg, uint16_t off, uint16_t val);
+#define CATZ_SELW(s, o, v) do { if (g_wsel == 0xFFFFu) catz_sel_write((s), 0, (v)); else if (g_wsel && ((s) == g_wsel || (s) == (uint16_t)(g_wsel + 1))) catz_sel_write((s), (o), (v)); } while (0)
 
 static inline void mem_write8(CPU *cpu, uint16_t seg, uint16_t off, uint8_t val) {
     CATZ_WATCH_CHECK(seg, off, val);
-    CATZ_SELW(seg, off);
+    CATZ_SELW(seg, off, val);
     cpu->mem[seg_off(cpu, seg, off)] = val;
 }
 
@@ -231,7 +231,7 @@ static inline uint16_t mem_read16(CPU *cpu, uint16_t seg, uint16_t off) {
 static inline void mem_write16(CPU *cpu, uint16_t seg, uint16_t off, uint16_t val) {
     uint32_t addr = seg_off(cpu, seg, off);
     CATZ_WATCH_CHECK(seg, off, val);
-    CATZ_SELW(seg, off);
+    CATZ_SELW(seg, off, val);
 #ifdef CATZ_WATCH_EXC
     {   /* Stack-overflow detector: log the first time sp descends below a low
          * watermark — catches whatever is consuming the stack toward underflow. */

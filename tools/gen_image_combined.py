@@ -146,6 +146,8 @@ def main():
            f'#define CATZ_DLL_ENTRY_SEG {dll.cs}      /* CATZDLL LibMain */',
            f'#define CATZ_DLL_ENTRY_IP 0x{dll.ip:04X}u',
            f'#define CATZ_DLL_AUTO_DATA_SEG {dll.auto_data_seg}  /* CATZDLL DGROUP */',
+           f'#define CATZ_DLL_HEAP_SIZE 0x{dll.heap_size:04X}',
+           f'#define CATZ_WAD_HEAP_SIZE 0x{wad.heap_size:04X}',
            f'static const uint32_t SEG_SEGMENT_BASE[{max_index + 1}] = {{']
     row = []
     for n in range(0, max_index + 1):

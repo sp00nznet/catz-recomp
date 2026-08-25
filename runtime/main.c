@@ -311,7 +311,7 @@ static void fnc_report(void) {
 uint16_t g_wsel;
 static struct { const char *n; uint16_t s; unsigned long c; } g_selw[4096];
 static int g_nselw;
-void catz_sel_write(uint16_t seg, uint16_t off) {
+void catz_sel_write(uint16_t seg, uint16_t off, uint16_t val) {
     {   static int inited; static long lo = -1, hi = -1;
         if (!inited) { inited = 1;
             const char *a = getenv("CATZ_WATCH_LO"), *b = getenv("CATZ_WATCH_HI");
@@ -321,10 +321,10 @@ void catz_sel_write(uint16_t seg, uint16_t off) {
             static int nn;
             const char *fn = g_fn_ring[(g_fn_ring_pos - 1) & (CATZ_FN_RING_SIZE - 1)];
             if (nn++ < 4000)
-                fprintf(stderr, "[w] %04X:%04X by %s\n", seg, off, fn ? fn : "?");
+                fprintf(stderr, "[w] %04X:%04X = %04X by %s\n", seg, off, val, fn ? fn : "?");
             /* first hit only: shows who is writing here */
-            if (nn == 1)
-                for (int q = 1; q <= 20; q++) {
+            if (nn == 8)
+                for (int q = 1; q <= 44; q++) {
                     const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)q) & (CATZ_FN_RING_SIZE - 1)];
                     fprintf(stderr, "[wring] %2d %s\n", q, r ? r : "?");
                 }
@@ -412,6 +412,13 @@ int main(int argc, char *argv[])
     cpu.ss = CATZ_STACK_SEG;
     cpu.sp = CATZ_STACK_SP ? CATZ_STACK_SP : 0xFFFE;
     cpu.cs = CATZ_DLL_ENTRY_SEG;
+    /* Win16 DLL entry contract: DI = hInstance, DS = DGROUP, CX = the heap
+       size from the NE header, ES:SI = command line. CX left at 0 made the
+       DLL take its "jcxz" path and skip LocalInit, so it ran with no local
+       heap at all. */
+    cpu.di = CATZ_DLL_AUTO_DATA_SEG;        /* hInstance */
+    cpu.cx = CATZ_DLL_HEAP_SIZE;
+    cpu.si = 0;
     seg001_0000(&cpu);                      /* CATZDLL LibMain */
     printf("CATZDLL init returned (ax=%04X)\n", cpu.ax);
 

@@ -732,6 +732,34 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             nb++;
         }
     }
+    {   /* CATZ_CHECK_TRIG: snapshot the DLL's sin/cos tables on the first blit
+           and re-verify on every later one; report the first entry that changes. */
+        if (getenv("CATZ_CHECK_TRIG")) {
+            static int done;
+            if (!done) {
+                uint32_t cb = seg_off(cpu, 59, 0x4004), sb = seg_off(cpu, 59, 0x4408);
+                for (int k = -128; k <= 128 && !done; k++) {
+                    int32_t cv, sv;
+                    memcpy(&cv, cpu->mem + cb + k * 4, 4);
+                    memcpy(&sv, cpu->mem + sb + k * 4, 4);
+                    long wc = lround(256.0 * cos(k * 3.14159265358979 / 128.0));
+                    long ws = lround(256.0 * sin(k * 3.14159265358979 / 128.0));
+                    if (labs((long)cv - wc) > 2 || labs((long)sv - ws) > 2) {
+                        fprintf(stderr, "[trigchk] index %d: cos=%ld (want %ld)  sin=%ld (want %ld)\n",
+                                k, (long)cv, wc, (long)sv, ws);
+                        done = 1;
+                    }
+                }
+            }
+        }
+    }
+    {   /* CATZ_EXIT_BLITS=<n>: quit after n screen blits, so a run is a fixed
+           amount of work and can be timed. */
+        static const char *eb; static int inited, nleft;
+        if (!inited) { inited = 1; eb = getenv("CATZ_EXIT_BLITS");
+                       nleft = eb ? atoi(eb) : 0; }
+        if (eb && --nleft <= 0) { fflush(stderr); _exit(0); }
+    }
     {   const char *cd = getenv("CATZ_DIFF");
         if (cd && i == 0) surf_diff(cpu, i, atoi(cd));
     }

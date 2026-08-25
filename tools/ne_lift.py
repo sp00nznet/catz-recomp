@@ -790,6 +790,7 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
 
     # Map each function start offset to its label, for fall-through handling.
     off_to_label = {f.offset: f.label for f in functions}
+    valid_labels = {f.label for f in functions}
     TERMINATORS = ('ret', 'retf', 'iret', 'jmp')
 
     for func in target_funcs:
@@ -797,6 +798,12 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
         func_insts = [i for i in instructions
                       if func.offset <= (i.offset - seg.file_offset) < func.end]
         if not func_insts:
+            # A branch target that landed inside an instruction: detect_functions
+            # made a label for it but there is nothing to lift. This only happens
+            # inside runs of data the sweep decoded as code, so the branch never
+            # executes -- emit a body that says so rather than leaving the label
+            # undefined and breaking the link.
+            print('void ' + func.label + '(CPU *cpu)\n{\n' + '    TRACE_FN(\"' + func.label + '\");\n' + '    catz_unreachable(\"%03d\", 0x%04X);\n' % (seg.index, func.offset) + '}\n')
             continue
 
         code = lifter.lift_function(
@@ -821,6 +828,18 @@ def lift_segment(ne: NEHeader, seg_num: int, func_offset: int = -1, xmod=None):
                     f' return; /* unlifted branch target */')
         code = re.sub(r'recomp_dispatch\(cpu, 0x([0-9A-Fa-f]+), 0x([0-9A-Fa-f]+)\); return;',
                       _unreachable, code)
+
+        # A branch into the middle of an instruction has no label to jump to.
+        # These only arise inside runs of data that the sweep decoded as code, so
+        # the branch is never actually executed -- but it still has to compile.
+        # Any same-segment callee we did not lift becomes catz_unreachable().
+        def _unknown_label(m):
+            if m.group(1) in valid_labels:
+                return m.group(0)
+            return (f'catz_unreachable("{seg.index:03d}", 0x{m.group(2)});'
+                    f' return; /* branch into mid-instruction */')
+        code = re.sub(rf'(seg{seg.index:03d}_([0-9A-F]{{4}}))\(cpu\); return;',
+                      _unknown_label, code)
 
         # Fall-through: if the last instruction is not a control-flow terminator,
         # execution flows into the next function. Emit that as a tail call so the

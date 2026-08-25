@@ -403,13 +403,22 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
                 if inst is None:
                     break
                 instructions.append(inst)
-                have.add(pos)
+                have.update(range(pos, pos + max(inst.length, 1)))
                 added = True
                 if inst.mnemonic in ('ret', 'retf', 'iret', 'jmp'):
                     break
         return added
 
-    have = {i.offset - seg.file_offset for i in instructions}
+    # Every BYTE already decoded, not just instruction starts. recover() used to
+    # test only starts, so a forced entry pointing into the middle of an
+    # instruction happily decoded from there and both readings were emitted --
+    # e.g. the 5-byte far call at seg49:3622 also decoded from 3625, which
+    # produced a stray "inc word [bx+si]" that incremented a wild address and
+    # walked over the ball rotation's sin table.
+    have = set()
+    for _i in instructions:
+        _o = _i.offset - seg.file_offset
+        have.update(range(_o, _o + max(_i.length, 1)))
     recover(forced_entries, have)
     _fpu_fixup(instructions)   # recover() may have added more ESC opcodes
     instructions.sort(key=lambda i: i.offset)
