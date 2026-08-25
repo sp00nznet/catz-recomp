@@ -322,7 +322,8 @@ void catz_sel_write(uint16_t seg, uint16_t off) {
             const char *fn = g_fn_ring[(g_fn_ring_pos - 1) & (CATZ_FN_RING_SIZE - 1)];
             if (nn++ < 4000)
                 fprintf(stderr, "[w] %04X:%04X by %s\n", seg, off, fn ? fn : "?");
-            if (nn == 800)
+            /* first hit only: shows who is writing here */
+            if (nn == 1)
                 for (int q = 1; q <= 20; q++) {
                     const char *r = g_fn_ring[(g_fn_ring_pos - (unsigned)q) & (CATZ_FN_RING_SIZE - 1)];
                     fprintf(stderr, "[wring] %2d %s\n", q, r ? r : "?");

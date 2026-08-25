@@ -85,13 +85,26 @@ def main():
                 r.target_seg += SEG_OFFSET
         s.index += SEG_OFFSET
 
+    # A Win16 module's DGROUP is static data + local heap + stack; the NE header
+    # carries the last two separately and the segment's own size covers only the
+    # statics. Sizing DGROUP at the static size alone left the DLL's 0x1000 heap
+    # and the WAD's 0x276C stack with nowhere to live, so the guest allocator
+    # handed out blocks that overlapped static data -- which is how entries of
+    # the ball rotation's sin table were getting overwritten mid-run.
+    extra = {}
+    for ne, off in ((dll, 0), (wad, SEG_OFFSET)):
+        if ne.auto_data_seg:
+            extra[ne.auto_data_seg + off] = ne.heap_size + ne.stack_size
+
     all_segs = list(dll.segments) + list(wad.segments)
     max_index = max(s.index for s in all_segs)
 
     base = [0] * MAX_SEL
     cursor = PARA                          # guard paragraph at offset 0
     for s in all_segs:
-        sz = max(s.actual_size, s.alloc_size, 1)
+        sz = max(s.actual_size, s.alloc_size, 1) + extra.get(s.index, 0)
+        if sz > 0x10000:
+            sz = 0x10000                    # a segment cannot exceed 64K
         base[s.index] = cursor
         cursor += roundup(sz, PARA)
     guard_base = cursor
