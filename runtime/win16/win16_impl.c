@@ -454,6 +454,76 @@ void USER_REALIZEPALETTE(CPU *cpu) {         /* (hdc@0) */
     ret(cpu, 2);
 }
 
+/* A scratch guest block for marshalling host structures the engine expects to
+ * read through a far pointer (WM_DRAWITEM's DRAWITEMSTRUCT, so far). One
+ * segment is enough: each use is consumed inside a single WNDPROC call. */
+/* SetDIBitsToDevice. This was a stub returning 0, and it is how the adoption
+ * dialog paints each breed's portrait: the five buttons are owner-drawn, so the
+ * engine answers WM_DRAWITEM by pushing a DIB straight at the button's DC. With
+ * it doing nothing the five panels came up blank and there was nothing to pick.
+ *
+ * Win16 args (PASCAL, last pushed at offset 0):
+ *   wUsage@0 lpbmi@2(4) lpBits@6(4) nNumScans@10 nStartScan@12
+ *   YSrc@14 XSrc@16 nHeight@18 nWidth@20 YDest@22 XDest@24 hdc@26 */
+void GDI_SETDIBITSTODEVICE(CPU *cpu) {
+    uint16_t usage = a16(cpu, 0);
+    uint16_t bmio = a16(cpu, 2),  bmis = a16(cpu, 4);
+    uint16_t bito = a16(cpu, 6),  bits = a16(cpu, 8);
+    uint16_t nscans = a16(cpu, 10), start = a16(cpu, 12);
+    int ysrc = (int16_t)a16(cpu, 14), xsrc = (int16_t)a16(cpu, 16);
+    int hgt  = (int16_t)a16(cpu, 18), wid  = (int16_t)a16(cpu, 20);
+    int ydst = (int16_t)a16(cpu, 22), xdst = (int16_t)a16(cpu, 24);
+    uint16_t ghdc = a16(cpu, 26);
+
+    extern HDC catz_real_hdc(uint16_t);
+    HDC dc = catz_real_hdc(ghdc);
+    if (!dc || !bmis || !bits) { cpu->ax = 0; ret(cpu, 28); return; }
+
+    unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
+    memset(bi, 0, sizeof bi);
+    for (unsigned k = 0; k < sizeof(BITMAPINFOHEADER); k++)
+        bi[k] = mem_read8(cpu, bmis, (uint16_t)(bmio + k));
+    BITMAPINFOHEADER *h = (BITMAPINFOHEADER *)bi;
+    if (h->biSize != sizeof(BITMAPINFOHEADER) || h->biBitCount == 0) {
+        cpu->ax = 0; ret(cpu, 28); return;
+    }
+    uint8_t *tab = bi + sizeof(BITMAPINFOHEADER);
+    if (h->biBitCount <= 8) {
+        unsigned n = h->biClrUsed ? h->biClrUsed : (1u << h->biBitCount);
+        if (n > 256) n = 256;
+        if (usage == 1) {                 /* DIB_PAL_COLORS: 16-bit palette indices */
+            for (unsigned c = 0; c < n; c++) {
+                unsigned idx = mem_read16(cpu, bmis,
+                                          (uint16_t)(bmio + 40 + c * 2)) & 0xFF;
+                memcpy(tab + c * 4, g_active_pal + idx * 4, 4);
+            }
+            h->biClrUsed = n;
+        } else {
+            int any = 0;
+            for (unsigned c = 0; c < n * 4; c++)
+                if ((tab[c] = mem_read8(cpu, bmis, (uint16_t)(bmio + 40 + c)))) any = 1;
+            /* Same story as the WinG surfaces: the engine leaves the table blank
+               and relies on the palette it realized. */
+            if (!any && g_have_pal) memcpy(tab, g_active_pal, n * 4);
+        }
+    }
+    int r = SetDIBitsToDevice(dc, xdst, ydst, (DWORD)wid, (DWORD)hgt,
+                              xsrc, ysrc, start, nscans,
+                              cpu->mem + seg_off(cpu, bits, bito),
+                              (const BITMAPINFO *)bi,
+                              usage == 1 ? DIB_PAL_COLORS : DIB_RGB_COLORS);
+    IMPL_LOG("[win16] SetDIBitsToDevice %dx%d at (%d,%d) -> %d\\n", wid, hgt, xdst, ydst, r);
+    cpu->ax = (uint16_t)r;
+    ret(cpu, 28);
+}
+
+uint16_t catz_guest_scratch(CPU *cpu, uint32_t bytes) {
+    static uint16_t sel; static uint32_t have;
+    if (!sel || have < bytes) { sel = galloc(cpu, bytes < 256 ? 256 : bytes);
+                                have = bytes < 256 ? 256 : bytes; }
+    return sel;
+}
+
 void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,void**) */
     uint16_t ppoff = a16(cpu, 0), ppseg = a16(cpu, 2);   /* ppBits (void FAR* FAR*) */
     uint16_t hoff  = a16(cpu, 4), hseg  = a16(cpu, 6);   /* pHeader */

@@ -42,7 +42,6 @@ void GDI_POLYGON(CPU *cpu) { (void)cpu; WIN16_LOG("POLYGON"); cpu->ax = 0; cpu->
 void GDI_RECTANGLE(CPU *cpu) { (void)cpu; WIN16_LOG("RECTANGLE"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void GDI_SETBKCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKCOLOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_SETBKMODE(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKMODE"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void GDI_SETDIBITSTODEVICE(CPU *cpu) { (void)cpu; WIN16_LOG("SETDIBITSTODEVICE"); cpu->ax = 0; cpu->sp += 4 + 28; }
 void GDI_SETTEXTCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETTEXTCOLOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
 

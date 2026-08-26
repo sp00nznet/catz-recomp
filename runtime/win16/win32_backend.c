@@ -85,6 +85,11 @@ static uint16_t put_hgdi(HGDIOBJ h) {
 
 static HGDIOBJ get_hgdi(uint16_t g) { return (g && g < MAXGDI) ? g_gdi[g] : NULL; }
 
+/* Stock objects are singletons GDI owns. Now that one host object maps to one
+ * guest handle, letting the engine delete one would strand every other holder
+ * of that handle -- and real GDI ignores DeleteObject on them anyway. */
+static char g_gdi_stock[MAXGDI];
+
 /* ---- guest window classes ----
  * One global WNDPROC was wrong: CATZ.WAD and CATZDLL each register their own
  * class, and every window was being routed to whichever registered last. The
@@ -200,8 +205,36 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
     hwnd_proc(hWnd, &pseg, &poff);
     if (pseg && forward_to_guest(msg)) {
         uint16_t gh = put_hwnd(hWnd);
+        uint32_t glp = (uint32_t)lParam;
+        /* The adoption dialog's breed buttons are owner-drawn: the engine paints
+         * each cat's portrait itself in response to WM_DRAWITEM. lParam is a host
+         * DRAWITEMSTRUCT pointer, which means nothing in guest memory, so the
+         * handler read rubbish and the buttons came up blank. Marshal it into the
+         * 26-byte Win16 layout and hand over a far pointer to that. */
+        if (msg == WM_DRAWITEM && lParam) {
+            const DRAWITEMSTRUCT *di = (const DRAWITEMSTRUCT *)lParam;
+            extern uint16_t catz_guest_scratch(CPU *, uint32_t);
+            uint16_t sg = catz_guest_scratch(g_cpu, 32);
+            if (sg) {
+                const uint16_t f[7] = {
+                    (uint16_t)di->CtlType, (uint16_t)di->CtlID,
+                    (uint16_t)di->itemID,  (uint16_t)di->itemAction,
+                    (uint16_t)di->itemState,
+                    put_hwnd(di->hwndItem), put_hdc(di->hDC),
+                };
+                for (int k = 0; k < 7; k++)
+                    mem_write16(g_cpu, sg, (uint16_t)(k * 2), f[k]);
+                const int16_t r[4] = { (int16_t)di->rcItem.left,  (int16_t)di->rcItem.top,
+                                       (int16_t)di->rcItem.right, (int16_t)di->rcItem.bottom };
+                for (int k = 0; k < 4; k++)
+                    mem_write16(g_cpu, sg, (uint16_t)(14 + k * 2), (uint16_t)r[k]);
+                mem_write16(g_cpu, sg, 22, (uint16_t)(di->itemData & 0xFFFF));
+                mem_write16(g_cpu, sg, 24, (uint16_t)(di->itemData >> 16));
+                glp = (uint32_t)sg << 16;
+            }
+        }
         LRESULT gr = call_guest_wndproc(pseg, poff, gh, (uint16_t)msg,
-                                        (uint16_t)wParam, (uint32_t)lParam);
+                                        (uint16_t)wParam, glp);
         /* The engine runs a shutdown chain on WM_CLOSE but never calls
            DestroyWindow or PostQuitMessage, so the window stayed up and the
            title-bar X did nothing. Let the guest run (it saves the pet), then
@@ -404,7 +437,9 @@ void GDI_CREATEPEN(CPU *cpu) {                 /* (style@6, width@4, colour@0) *
 }
 
 void GDI_GETSTOCKOBJECT(CPU *cpu) {            /* (index@0) */
-    cpu->ax = put_hgdi(GetStockObject((int)(int16_t)b_a16(cpu, 0)));
+    uint16_t g = put_hgdi(GetStockObject((int)(int16_t)b_a16(cpu, 0)));
+    if (g) g_gdi_stock[g] = 1;
+    cpu->ax = g;
     b_ret(cpu, 2);
 }
 
@@ -430,7 +465,7 @@ void GDI_SELECTOBJECT(CPU *cpu) {              /* (hdc@2, hgdiobj@0) -> previous
 void GDI_DELETEOBJECT(CPU *cpu) {              /* (hgdiobj@0) */
     uint16_t g = b_a16(cpu, 0);
     HGDIOBJ o = get_hgdi(g);
-    if (o) { DeleteObject(o); g_gdi[g] = NULL; }
+    if (o && !g_gdi_stock[g]) { DeleteObject(o); g_gdi[g] = NULL; }
     cpu->ax = 1;
     b_ret(cpu, 2);
 }
