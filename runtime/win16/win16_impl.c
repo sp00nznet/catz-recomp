@@ -777,6 +777,45 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             skip_canvas: ;
         }
     }
+    {   /* CATZ_SRCDUMP=<n>: write out the exact source region of pet-sized
+           blits n and n+1, to see whether the scratch is fully repainted. */
+        const char *sd = getenv("CATZ_SRCDUMP");
+        if (sd && hSrc > 100 && hSrc < 260 && wSrc > 60 && wSrc < 200) {
+            static int seen; int want = atoi(sd);
+            if (seen == want || seen == want + 1) {
+                uint32_t st = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+                const uint8_t *sp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+                uint32_t ost = ((uint32_t)wSrc + 3) & ~3u, nb = ost * (uint32_t)hSrc;
+                uint8_t *img = calloc(nb, 1);
+                char path[512];
+                snprintf(path, sizeof path, "%s/src%d.bmp",
+                         getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".",
+                         seen - want);
+                FILE *f = fopen(path, "wb");
+                if (img && f) {
+                    for (int yy = 0; yy < hSrc; yy++)
+                        for (int xx = 0; xx < wSrc; xx++)
+                            img[(uint32_t)yy * ost + xx] =
+                                sp[(uint32_t)(ySrc + yy) * st + (xSrc + xx)];
+                    uint32_t offb = 14 + 40 + 256 * 4, fsz = offb + nb;
+                    uint8_t fh[14] = {'B','M'};
+                    memcpy(fh + 2, &fsz, 4); memcpy(fh + 10, &offb, 4);
+                    BITMAPINFOHEADER ih; memset(&ih, 0, sizeof ih);
+                    ih.biSize = 40; ih.biWidth = wSrc; ih.biHeight = -hSrc;
+                    ih.biPlanes = 1; ih.biBitCount = 8; ih.biCompression = BI_RGB;
+                    ih.biSizeImage = nb; ih.biClrUsed = 256;
+                    fwrite(fh, 1, 14, f); fwrite(&ih, 1, 40, f);
+                    fwrite(g_wing[i].pal, 1, 256 * 4, f);
+                    fwrite(img, 1, nb, f);
+                    fprintf(stderr, "[src] %s src(%d,%d %dx%d) -> dst(%d,%d %dx%d)\n",
+                            path, xSrc, ySrc, wSrc, hSrc, xDest, yDest, wDest, hDest);
+                }
+                if (f) fclose(f);
+                free(img);
+            }
+            seen++;
+        }
+    }
     {   const char *lb = getenv("CATZ_LOG_BLT");
         if (lb) { static int nb;
             int at = atoi(lb);
