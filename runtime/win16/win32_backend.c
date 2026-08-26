@@ -68,8 +68,16 @@ static HDC get_hdc(uint16_t g) { return (g && g < MAXH) ? g_hdc[g] : NULL; }
 #define MAXGDI 256
 static HGDIOBJ g_gdi[MAXGDI];
 static int g_ngdi = 1;
+/* A host HGDIOBJ is the object's identity, so the same one must always map to
+ * the same guest handle. Handing out a fresh slot per call leaked the table dry
+ * within seconds -- GetStockObject returns the same few singletons over and over
+ * and SelectObject hands back the previous object on every single call. Once the
+ * table filled, put_hgdi returned 0 and the engine reported "object created ...
+ * failed" and stopped being able to make brushes and pens, which is why only a
+ * couple of toys could ever be taken off the shelf. */
 static uint16_t put_hgdi(HGDIOBJ h) {
     if (!h) return 0;
+    for (int i = 1; i < g_ngdi; i++) if (g_gdi[i] == h) return (uint16_t)i;
     for (int i = 1; i < g_ngdi; i++) if (!g_gdi[i]) { g_gdi[i] = h; return (uint16_t)i; }
     if (g_ngdi >= MAXGDI) { handle_table_full("GDI object"); return 0; }
     g_gdi[g_ngdi] = h; return (uint16_t)g_ngdi++;
@@ -542,6 +550,13 @@ void USER_GETCURSORPOS(CPU *cpu) {         /* (lpPoint@0/2) */
     /* CATZ_CURSOR=x,y pins the pointer where the engine thinks it is, so a
        click can be aimed at a widget without commandeering the real mouse. */
     const char *fc = getenv("CATZ_CURSOR");
+    char fbuf[64];
+    if (fc && fc[0] == '@') {                 /* @path: re-read, so a drag can move */
+        FILE *cf = fopen(fc + 1, "r");
+        fbuf[0] = 0;
+        if (cf) { if (!fgets(fbuf, sizeof fbuf, cf)) fbuf[0] = 0; fclose(cf); }
+        fc = fbuf[0] ? fbuf : NULL;
+    }
     if (fc) {
         p.x = atoi(fc);
         const char *c = strchr(fc, ',');
@@ -859,10 +874,15 @@ void USER_DIALOGBOXPARAM(CPU *cpu) {
                 q = c + 1;
             }
             seen++;
-            g_dlg_ended[d] = 1;
-            g_dlg_result[d] = (uint16_t)strtoul(q, NULL, 0);
-            fprintf(stderr, "[win32] dialog %u auto-answered %u\n",
-                    tmpl, g_dlg_result[d]);
+            long ans = strtol(q, NULL, 0);
+            if (ans < 0) {          /* -1: leave this one for a real click */
+                fprintf(stderr, "[win32] dialog %u left interactive\n", tmpl);
+            } else {
+                g_dlg_ended[d] = 1;
+                g_dlg_result[d] = (uint16_t)ans;
+                fprintf(stderr, "[win32] dialog %u auto-answered %u\n",
+                        tmpl, g_dlg_result[d]);
+            }
         }
         MSG m;
         while (!g_dlg_ended[d] && GetMessageA(&m, NULL, 0, 0)) {
