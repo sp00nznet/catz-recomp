@@ -44,7 +44,6 @@ void GDI_SETBKCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKCOLOR"); cpu->ax = 0;
 void GDI_SETBKMODE(CPU *cpu) { (void)cpu; WIN16_LOG("SETBKMODE"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_SETDIBITSTODEVICE(CPU *cpu) { (void)cpu; WIN16_LOG("SETDIBITSTODEVICE"); cpu->ax = 0; cpu->sp += 4 + 28; }
 void GDI_SETTEXTCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETTEXTCOLOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void GDI_STRETCHBLT(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHBLT"); cpu->ax = 0; cpu->sp += 4 + 24; }
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
 
 /* ===== KERNEL ===== */

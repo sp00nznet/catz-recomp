@@ -614,6 +614,29 @@ static void canvas_dump(int tag) {
     fprintf(stderr, "[win] wrote %s\n", path);
 }
 
+void WING_WINGSTRETCHBLT(CPU *cpu);
+/* GDI StretchBlt. This was a stub returning 0, and it is how the engine puts the
+ * saved backdrop back over the pet's old position -- a WinG surface onto another
+ * WinG surface, which never went near a real HDC. With it doing nothing, the
+ * previous frame was never erased and the pet smeared across the playpen.
+ *
+ * Win16 args (PASCAL, so the last pushed sits at offset 0):
+ *   dwRop@0(4) hSrc@4 wSrc@6 ySrc@8 xSrc@10 hdcSrc@12
+ *   hDest@14 wDest@16 yDest@18 xDest@20 hdcDest@22
+ * Re-frame them as WinGStretchBlt's 20-byte list and reuse that path: bumping sp
+ * by 4 first leaves it popping exactly the 24 bytes StretchBlt owes. */
+void GDI_STRETCHBLT(CPU *cpu) {
+    uint16_t a[10];
+    a[9] = a16(cpu, 22); a[8] = a16(cpu, 20); a[7] = a16(cpu, 18);   /* hdcDest x y */
+    a[6] = a16(cpu, 16); a[5] = a16(cpu, 14);                        /* wDest hDest */
+    a[4] = a16(cpu, 12); a[3] = a16(cpu, 10); a[2] = a16(cpu, 8);    /* hdcSrc x y  */
+    a[1] = a16(cpu, 6);  a[0] = a16(cpu, 4);                         /* wSrc  hSrc  */
+    cpu->sp += 4;
+    for (int k = 0; k < 10; k++)
+        mem_write16(cpu, cpu->ss, (uint16_t)(cpu->sp + 4 + k * 2), a[k]);
+    WING_WINGSTRETCHBLT(cpu);            /* pops 4 + 20, i.e. our 4 + 24 total */
+}
+
 void WING_WINGSTRETCHBLT(CPU *cpu) {
     int hSrc  = (int16_t)a16(cpu, 0),  wSrc  = (int16_t)a16(cpu, 2);
     int ySrc  = (int16_t)a16(cpu, 4),  xSrc  = (int16_t)a16(cpu, 6);
@@ -623,8 +646,6 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     uint16_t hdcSrc  = a16(cpu, 8);
 
     extern HDC catz_real_hdc(uint16_t);
-    HDC dst = catz_real_hdc(hdcDest);
-    if (!dst) { cpu->ax = 0; ret(cpu, 20); return; }
 
     int i = -1;
     {   int d = (int)hdcSrc - WING_DC_HANDLE;
@@ -632,6 +653,50 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     }
     if (i < 0) i = g_wing_cur;              /* nothing selected: last resort */
     if (i < 0) { cpu->ax = 0; ret(cpu, 20); return; }
+
+    /* Surface-to-surface. The engine restores the saved backdrop by blitting one
+     * WinG surface onto another, and a WinG DC handle is not in the host handle
+     * table, so catz_real_hdc gave NULL and every one of those copies was thrown
+     * away. Nothing ever erased the previous frame, so the pet accumulated in
+     * the scene surface and smeared across the playpen. Copy the pixels here. */
+    {   int d = (int)hdcDest - WING_DC_HANDLE, j = -1;
+        if (d >= 0 && d < WING_DC_MAX) j = wing_index_of(g_wingdc_sel[d]);
+        if (j >= 0) {
+            uint32_t ss = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+            uint32_t ds = (((uint32_t)g_wing[j].w * g_wing[j].bpp + 31) / 32) * 4;
+            const uint8_t *sp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+            uint8_t *dp = cpu->mem + seg_off(cpu, g_wing[j].sel, 0);
+            /* Scrolling a surface onto itself overlaps, so walk each axis away
+             * from the destination the way memmove would; copying forward
+             * through an overlap combs the image into vertical stripes. */
+            int ydn = !(i == j && yDest > ySrc), xdn = !(i == j && xDest > xSrc);
+            for (int k = 0; k < hDest && hSrc > 0; k++) {
+                int dy = ydn ? k : hDest - 1 - k;
+                int oy = yDest + dy;
+                if (oy < 0 || oy >= g_wing[j].h) continue;
+                int sy = ySrc + (int)((long)dy * hSrc / hDest);
+                if (sy < 0 || sy >= g_wing[i].h) continue;
+                for (int m = 0; m < wDest && wSrc > 0; m++) {
+                    int dx = xdn ? m : wDest - 1 - m;
+                    int ox = xDest + dx;
+                    if (ox < 0 || ox >= g_wing[j].w) continue;
+                    int sx = xSrc + (int)((long)dx * wSrc / wDest);
+                    if (sx < 0 || sx >= g_wing[i].w) continue;
+                    dp[(uint32_t)oy * ds + ox] = sp[(uint32_t)sy * ss + sx];
+                }
+            }
+            if (getenv("CATZ_LOG_S2S")) { static int n;
+                if (n++ < atoi(getenv("CATZ_LOG_S2S")))
+                    fprintf(stderr, "[s2s] %4d surf%d(%d,%d %dx%d) -> surf%d(%d,%d %dx%d)\n",
+                            n, i, xSrc, ySrc, wSrc, hSrc, j, xDest, yDest, wDest, hDest); }
+            cpu->ax = 1;
+            ret(cpu, 20);
+            return;
+        }
+    }
+
+    HDC dst = catz_real_hdc(hdcDest);
+    if (!dst) { cpu->ax = 0; ret(cpu, 20); return; }
     /* BITMAPINFOHEADER + 256-entry palette, laid out as GDI32 wants it. */
     unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
     memset(bi, 0, sizeof bi);
