@@ -560,6 +560,40 @@ static void surf_diff(CPU *cpu, int i, int nth) {
     memcpy(prev, cur, nb);
 }
 
+/* CATZ_STALE=<n>: age map over the composited canvas. Every blit stamps the
+   pixels it covers with the current blit number; after 2n blits we write out
+   only the pixels that have NOT been rewritten in the last n blits. Anything
+   showing there is screen content the engine has stopped repainting -- i.e.
+   the trail -- and its position says which region is being missed. */
+static int g_age[768][1024];
+static void stale_dump(int nblt, int win) {
+    char path[512];
+    snprintf(path, sizeof path, "%s/stale.bmp",
+             getenv("CATZ_DUMP_DIR") ? getenv("CATZ_DUMP_DIR") : ".");
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    static uint8_t img[768][1024];
+    unsigned nstale = 0;
+    for (int y = 0; y < 768; y++)
+        for (int x = 0; x < 1024; x++) {
+            int fresh = (nblt - g_age[y][x]) <= win;
+            img[y][x] = (!fresh && g_canvas[y][x]) ? g_canvas[y][x] : 0;
+            if (img[y][x]) nstale++;
+        }
+    uint32_t nbits = 1024u * 768u, offb = 14 + 40 + 256 * 4, fsz = offb + nbits;
+    uint8_t fh[14] = {'B','M'};
+    memcpy(fh + 2, &fsz, 4); memcpy(fh + 10, &offb, 4);
+    BITMAPINFOHEADER ih; memset(&ih, 0, sizeof ih);
+    ih.biSize = 40; ih.biWidth = 1024; ih.biHeight = -768; ih.biPlanes = 1;
+    ih.biBitCount = 8; ih.biCompression = BI_RGB; ih.biSizeImage = nbits;
+    ih.biClrUsed = 256;
+    fwrite(fh, 1, 14, f); fwrite(&ih, 1, 40, f);
+    fwrite(g_canvas_pal, 1, 256 * 4, f);
+    fwrite(img, 1, nbits, f); fclose(f);
+    fprintf(stderr, "[stale] %u px not repainted in the last %d blits -> %s\n",
+            nstale, win, path);
+}
+
 static void canvas_dump(int tag) {
     char path[512];
     snprintf(path, sizeof path, "%s/win%d.bmp",
@@ -733,8 +767,11 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
                     int sx = xSrc + (int)((long)dx * wSrc / wDest);
                     if (sx < 0 || sx >= g_wing[i].w) continue;
                     g_canvas[oy][ox] = sp[(uint32_t)sy * st + (uint32_t)sx];
+                    g_age[oy][ox] = nblt;
                 }
             }
+            { const char *sv = getenv("CATZ_STALE");
+              if (sv && nblt == atoi(sv) * 2) stale_dump(nblt, atoi(sv)); }
             if (nblt == atoi(cw)) canvas_dump(1);
             if (nblt == atoi(cw) * 2) canvas_dump(2);
             skip_canvas: ;

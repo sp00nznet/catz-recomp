@@ -315,10 +315,22 @@ void USER_POSTQUITMESSAGE(CPU *cpu) {
     b_ret(cpu, 2);
 }
 
-void USER_SHOWWINDOW(CPU *cpu) {
+/* nCmdShow was ignored and every call forced SW_SHOW, so a window the engine
+ * asked to HIDE stayed up. It hides the 640x480 pet overlay right after
+ * creating it -- leaving that visible put a second window full of older frames
+ * on top of the playpen, which is indistinguishable from the pet smearing.
+ * Win16 SW_* values match Win32, so pass it straight through. */
+void USER_SHOWWINDOW(CPU *cpu) {          /* (hwnd@2, nCmdShow@0) */
     HWND h = get_hwnd(b_a16(cpu, 2));
-    if (h) ShowWindow(h, SW_SHOW);
-    cpu->ax = 0; b_ret(cpu, 4);
+    int cmd = (int)(int16_t)b_a16(cpu, 0);
+    /* One deliberate exception: the engine hides the 640x480 popup because it
+       wants to paint the bare desktop instead. We have repurposed exactly that
+       window as the pet's screen (GetDC(NULL) returns its DC), so keeping the
+       pet indoors means keeping it shown. Everything else is honoured. */
+    if (h && h == g_screen_hwnd && cmd == SW_HIDE && !getenv("CATZ_DESKTOP"))
+        cmd = SW_SHOWNA;                  /* show it, but do not steal focus */
+    cpu->ax = (uint16_t)(h ? ShowWindow(h, cmd) : 0);
+    b_ret(cpu, 4);
 }
 
 void USER_UPDATEWINDOW(CPU *cpu) {
