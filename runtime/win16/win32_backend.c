@@ -461,7 +461,11 @@ void GDI_SELECTOBJECT(CPU *cpu) {              /* (hdc@2, hgdiobj@0) -> previous
         b_ret(cpu, 4);
         return;
     }
-    HDC dc = get_hdc(gdc);
+    /* Anything else selected into a WinG DC -- a pen, a brush -- has to reach
+       the host DC that actually draws on that surface, or the shapes come out
+       in the stock black-on-white. */
+    extern HDC wing_state_dc(CPU *, uint16_t);
+    HDC dc = wing_is_dc(gdc) ? wing_state_dc(cpu, gdc) : get_hdc(gdc);
     HGDIOBJ o = get_hgdi(gob);
     HGDIOBJ prev = (dc && o) ? SelectObject(dc, o) : NULL;
     cpu->ax = prev ? put_hgdi(prev) : 0;
@@ -498,6 +502,150 @@ void GDI_CREATECOMPATIBLEBITMAP(CPU *cpu) {    /* (hdc@4, w@2, h@0) */
     HBITMAP bm = dc ? CreateCompatibleBitmap(dc, w, h) : NULL;
     cpu->ax = bm ? put_hgdi(bm) : 0;
     b_ret(cpu, 6);
+}
+
+extern HDC  wing_draw_begin(CPU *, uint16_t, const RECT *);
+extern void wing_draw_end(CPU *, uint16_t, const RECT *);
+extern int  wing_is_dc(uint16_t);
+extern HDC  wing_state_dc(CPU *, uint16_t);
+
+static HDC draw_dc(CPU *cpu, uint16_t g, RECT b, RECT *used, int *wing);
+
+/* GetSysColor returned 0 -- black -- for every system colour, and the engine
+ * paints its own window chrome (the toy shelf's caption bar and the frames
+ * round its buttons) out of them. */
+void USER_GETSYSCOLOR(CPU *cpu) {              /* (nIndex@0) */
+    COLORREF c = GetSysColor((int)(int16_t)b_a16(cpu, 0));
+    cpu->ax = (uint16_t)(c & 0xFFFF); cpu->dx = (uint16_t)(c >> 16);
+    b_ret(cpu, 2);
+}
+
+/* DrawText(hdc@12, lpString@8/10, nCount@6, lpRect@2/4, uFormat@0) */
+void USER_DRAWTEXT(CPU *cpu) {
+    uint16_t g = b_a16(cpu, 12);
+    uint16_t so = b_a16(cpu, 8), ss = b_a16(cpu, 10);
+    int n       = (int16_t)b_a16(cpu, 6);
+    uint16_t ro = b_a16(cpu, 2), rs = b_a16(cpu, 4);
+    UINT fmt    = b_a16(cpu, 0);
+    if (!rs || !ss) { cpu->ax = 0; b_ret(cpu, 14); return; }
+    RECT r = { (int16_t)mem_read16(cpu, rs, ro),
+               (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 2)),
+               (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 4)),
+               (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 6)) };
+    char buf[512];
+    int len = (n < 0) ? -1 : (n > (int)sizeof buf - 1 ? (int)sizeof buf - 1 : n);
+    b_asciiz(cpu, ss, so, buf, sizeof buf);
+    RECT used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    cpu->ax = (uint16_t)(dc ? DrawTextA(dc, buf, len, &r, fmt) : 0);
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    b_ret(cpu, 14);
+}
+
+/* A drawing call names a WinG surface as often as a real DC. Resolve either,
+ * and when it is a WinG surface bracket the call so the pixels move in and
+ * out of the DIB the host DC actually draws on. */
+static HDC draw_dc(CPU *cpu, uint16_t g, RECT b, RECT *used, int *wing) {
+    if (wing_is_dc(g)) {
+        InflateRect(&b, 4, 4);            /* room for the pen */
+        *used = b; *wing = 1;
+        return wing_draw_begin(cpu, g, &b);
+    }
+    *wing = 0;
+    return get_hdc(g);
+}
+
+/* The plain GDI drawing primitives. All of these were stubs returning 0, and
+ * they are how the engine draws its picture sprites -- the milk bottle and the
+ * cat's thought cloud among them, which is why a bottle taken off the shelf
+ * vanished while the ball-based toys, drawn by the engine's own rasteriser,
+ * came out fine. */
+void GDI_ELLIPSE(CPU *cpu) {                   /* (hdc@8,l@6,t@4,r@2,b@0) */
+    uint16_t g = b_a16(cpu, 8);
+    RECT r = { (int16_t)b_a16(cpu, 6), (int16_t)b_a16(cpu, 4),
+               (int16_t)b_a16(cpu, 2), (int16_t)b_a16(cpu, 0) };
+    RECT used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    cpu->ax = (uint16_t)(dc ? Ellipse(dc, r.left, r.top, r.right, r.bottom) : 0);
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    b_ret(cpu, 10);
+}
+
+void GDI_RECTANGLE(CPU *cpu) {                 /* (hdc@8,l@6,t@4,r@2,b@0) */
+    uint16_t g = b_a16(cpu, 8);
+    RECT r = { (int16_t)b_a16(cpu, 6), (int16_t)b_a16(cpu, 4),
+               (int16_t)b_a16(cpu, 2), (int16_t)b_a16(cpu, 0) };
+    RECT used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    cpu->ax = (uint16_t)(dc ? Rectangle(dc, r.left, r.top, r.right, r.bottom) : 0);
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    b_ret(cpu, 10);
+}
+
+/* Polygon(hdc@6, lpPoints@2/4, nCount@0). Win16 POINT is two 16-bit ints. */
+void GDI_POLYGON(CPU *cpu) {
+    uint16_t g  = b_a16(cpu, 6);
+    uint16_t po = b_a16(cpu, 2), ps = b_a16(cpu, 4);
+    int n       = (int16_t)b_a16(cpu, 0);
+    if (!ps || n < 2 || n > 1024) { cpu->ax = 0; b_ret(cpu, 8); return; }
+    POINT *pt = malloc(sizeof(POINT) * (size_t)n);
+    if (!pt) { cpu->ax = 0; b_ret(cpu, 8); return; }
+    RECT r = { 0x7FFF, 0x7FFF, -0x7FFF, -0x7FFF };
+    for (int i = 0; i < n; i++) {
+        pt[i].x = (int16_t)mem_read16(cpu, ps, (uint16_t)(po + i * 4));
+        pt[i].y = (int16_t)mem_read16(cpu, ps, (uint16_t)(po + i * 4 + 2));
+        if (pt[i].x < r.left)   r.left   = pt[i].x;
+        if (pt[i].x > r.right)  r.right  = pt[i].x;
+        if (pt[i].y < r.top)    r.top    = pt[i].y;
+        if (pt[i].y > r.bottom) r.bottom = pt[i].y;
+    }
+    r.right++; r.bottom++;
+    RECT used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    cpu->ax = (uint16_t)(dc ? Polygon(dc, pt, n) : 0);
+    if (dc && wing) wing_draw_end(cpu, g, &used);
+    free(pt);
+    b_ret(cpu, 8);
+}
+
+/* FrameRect(hdc@6, lprc@2/4, hbr@0) */
+void USER_FRAMERECT(CPU *cpu) {
+    HDC dc      = get_hdc(b_a16(cpu, 6));
+    uint16_t ro = b_a16(cpu, 2), rs = b_a16(cpu, 4);
+    HBRUSH br   = (HBRUSH)get_hgdi(b_a16(cpu, 0));
+    if (dc && rs) {
+        RECT r = { (int16_t)mem_read16(cpu, rs, ro),
+                   (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 2)),
+                   (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 4)),
+                   (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 6)) };
+        cpu->ax = (uint16_t)FrameRect(dc, &r, br);
+    } else cpu->ax = 0;
+    b_ret(cpu, 8);
+}
+
+/* These three return the PREVIOUS value, which the engine saves and restores,
+   so a stubbed 0 does not merely lose a colour -- it corrupts the restore. */
+void GDI_SETBKCOLOR(CPU *cpu) {                /* (hdc@4, COLORREF@0) */
+    uint16_t g = b_a16(cpu, 4);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    COLORREF prev = dc ? SetBkColor(dc, (COLORREF)b_a32(cpu, 0)) : 0;
+    cpu->ax = (uint16_t)(prev & 0xFFFF); cpu->dx = (uint16_t)(prev >> 16);
+    b_ret(cpu, 6);
+}
+
+void GDI_SETTEXTCOLOR(CPU *cpu) {              /* (hdc@4, COLORREF@0) */
+    uint16_t g = b_a16(cpu, 4);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    COLORREF prev = dc ? SetTextColor(dc, (COLORREF)b_a32(cpu, 0)) : 0;
+    cpu->ax = (uint16_t)(prev & 0xFFFF); cpu->dx = (uint16_t)(prev >> 16);
+    b_ret(cpu, 6);
+}
+
+void GDI_SETBKMODE(CPU *cpu) {                 /* (hdc@2, mode@0) */
+    uint16_t g = b_a16(cpu, 2);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    cpu->ax = (uint16_t)(dc ? SetBkMode(dc, (int16_t)b_a16(cpu, 0)) : 0);
+    b_ret(cpu, 4);
 }
 
 void GDI_PATBLT(CPU *cpu) {                    /* (hdc@12,x@10,y@8,w@6,h@4,rop@0) */

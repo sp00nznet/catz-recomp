@@ -301,6 +301,108 @@ uint16_t wing_select(uint16_t hdc, uint16_t hbm) {
     return prev;
 }
 
+/* Drawing GDI primitives onto a WinG surface.
+ *
+ * The engine draws its picture sprites -- the milk bottle, the cat's thought
+ * cloud -- with Ellipse and Polygon aimed at a WinG DC. A WinG DC handle is not
+ * in the host handle table, so every one of those calls resolved to a NULL HDC
+ * and was thrown away: the bottle came off the shelf and simply was not there.
+ *
+ * A WinG surface is raw bytes inside guest memory, which GDI cannot draw on
+ * directly. Keep a host memory DC over a matching DIB section per WinG DC, copy
+ * the affected rectangle in before the call and back out after. Syncing only
+ * that rectangle keeps it cheap -- these are twenty-pixel shapes. The DC
+ * persists, so pens and brushes selected into it stay selected. */
+static struct { HDC dc; HBITMAP bm; void *bits; HGDIOBJ obm; int i, w, h; }
+    g_wdib[WING_DC_MAX];
+
+static HDC wing_host_dc(CPU *cpu, uint16_t gdc, int *out_i) {
+    int d = (int)gdc - WING_DC_HANDLE;
+    if (d < 0 || d >= WING_DC_MAX) return NULL;
+    int i = wing_index_of(g_wingdc_sel[d]);
+    if (i < 0) return NULL;
+    if (out_i) *out_i = i;
+    if (g_wdib[d].dc && g_wdib[d].i == i) return g_wdib[d].dc;
+    if (g_wdib[d].dc) {
+        SelectObject(g_wdib[d].dc, g_wdib[d].obm);
+        DeleteObject(g_wdib[d].bm); DeleteDC(g_wdib[d].dc);
+        memset(&g_wdib[d], 0, sizeof g_wdib[d]);
+    }
+    if (g_wing[i].bpp != 8) return NULL;       /* only the 8-bit surfaces exist */
+    unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
+    memset(bi, 0, sizeof bi);
+    BITMAPINFOHEADER *h = (BITMAPINFOHEADER *)bi;
+    h->biSize = sizeof(BITMAPINFOHEADER);
+    h->biWidth = g_wing[i].w; h->biHeight = -g_wing[i].h;
+    h->biPlanes = 1; h->biBitCount = 8; h->biCompression = BI_RGB;
+    h->biClrUsed = 256;
+    memcpy(bi + sizeof(BITMAPINFOHEADER), g_wing[i].pal, 256 * 4);
+    HDC dc = CreateCompatibleDC(NULL);
+    if (!dc) return NULL;
+    void *bits = NULL;
+    HBITMAP bm = CreateDIBSection(dc, (const BITMAPINFO *)bi, DIB_RGB_COLORS,
+                                  &bits, NULL, 0);
+    if (!bm || !bits) { if (bm) DeleteObject(bm); DeleteDC(dc); return NULL; }
+    g_wdib[d].obm  = SelectObject(dc, bm);
+    g_wdib[d].dc   = dc;   g_wdib[d].bm = bm;  g_wdib[d].bits = bits;
+    g_wdib[d].i    = i;    g_wdib[d].w  = g_wing[i].w; g_wdib[d].h = g_wing[i].h;
+    /* Give the DC the surface's own palette. The engine specifies its colours
+       as PALETTEINDEX values, which resolve against the DC's logical palette --
+       with none selected they landed on whatever GDI's default holds, and the
+       shelf panel came out framed in blue. */
+    {   struct { LOGPALETTE lp; PALETTEENTRY rest[255]; } p;
+        p.lp.palVersion = 0x300; p.lp.palNumEntries = 256;
+        for (int c = 0; c < 256; c++) {
+            PALETTEENTRY *e = &p.lp.palPalEntry[c];
+            e->peRed   = g_wing[i].pal[c * 4 + 2];
+            e->peGreen = g_wing[i].pal[c * 4 + 1];
+            e->peBlue  = g_wing[i].pal[c * 4 + 0];
+            e->peFlags = 0;
+        }
+        HPALETTE hp = CreatePalette(&p.lp);
+        if (hp) { SelectPalette(dc, hp, FALSE); RealizePalette(dc); }
+    }
+    return dc;
+}
+
+/* Copy one rectangle between the guest surface and the DIB the host DC draws on.
+   `in` non-zero copies guest -> DIB, zero copies DIB -> guest. */
+static void wing_sync(CPU *cpu, int d, const RECT *r, int in) {
+    int i = g_wdib[d].i;
+    uint32_t gst = (((uint32_t)g_wing[i].w * 8 + 31) / 32) * 4;
+    uint32_t dst = (((uint32_t)g_wdib[d].w * 8 + 31) / 32) * 4;
+    uint8_t *g = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+    uint8_t *b = (uint8_t *)g_wdib[d].bits;
+    int x0 = r->left  < 0 ? 0 : r->left,  y0 = r->top    < 0 ? 0 : r->top;
+    int x1 = r->right  > g_wdib[d].w ? g_wdib[d].w : r->right;
+    int y1 = r->bottom > g_wdib[d].h ? g_wdib[d].h : r->bottom;
+    for (int y = y0; y < y1; y++) {
+        uint8_t *gp = g + (uint32_t)y * gst + x0;
+        uint8_t *bp = b + (uint32_t)y * dst + x0;
+        if (x1 > x0) memcpy(in ? bp : gp, in ? gp : bp, (size_t)(x1 - x0));
+    }
+}
+
+/* State-only calls (SelectObject for a pen or brush, SetBkColor and friends)
+   need the host DC but touch no pixels, so they need no sync. */
+HDC wing_state_dc(CPU *cpu, uint16_t gdc) { return wing_host_dc(cpu, gdc, NULL); }
+
+/* Public entry points used by the GDI shims. bounds is inflated by the caller
+   to cover the pen width. Returns NULL when this is not a WinG DC. */
+HDC wing_draw_begin(CPU *cpu, uint16_t gdc, const RECT *bounds) {
+    int i = -1;
+    HDC dc = wing_host_dc(cpu, gdc, &i);
+    if (!dc) return NULL;
+    wing_sync(cpu, (int)gdc - WING_DC_HANDLE, bounds, 1);
+    return dc;
+}
+
+void wing_draw_end(CPU *cpu, uint16_t gdc, const RECT *bounds) {
+    int d = (int)gdc - WING_DC_HANDLE;
+    if (d < 0 || d >= WING_DC_MAX || !g_wdib[d].dc) return;
+    wing_sync(cpu, d, bounds, 0);
+}
+
 int wing_is_dc(uint16_t h)  { return h >= WING_DC_HANDLE && h < WING_DC_HANDLE + WING_DC_MAX; }
 int wing_is_bmp(uint16_t h) { return wing_index_of(h) >= 0; }
 
