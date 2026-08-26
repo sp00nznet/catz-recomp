@@ -201,6 +201,12 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
         if (hWnd == g_main_hwnd) { PostQuitMessage(0); return 0; }
         return 0;
     }
+    /* The engine repaints every pixel it invalidates, straight out of its own
+     * backdrop surface. Letting Windows erase to the class brush first only
+     * flashes another colour under it -- and where the guest repaints a smaller
+     * area than was invalidated, that colour is what stays on screen. Claim the
+     * erase as done. */
+    if (msg == WM_ERASEBKGND) return 1;
     uint16_t pseg, poff;
     hwnd_proc(hWnd, &pseg, &poff);
     if (pseg && forward_to_guest(msg)) {
@@ -962,8 +968,15 @@ void USER_SETTIMER(CPU *cpu) {
     if (pseg)
         fprintf(stderr, "[win16] *** SetTimer with a TIMERPROC (%04X) - "
                         "callback thunk not implemented, using WM_TIMER\n", pseg);
-    UINT_PTR t = h ? SetTimer(h, id, ms ? ms : 1, NULL) : 0;
-    fprintf(stderr, "[win32] SetTimer(id=%u, %ums) -> %u\n", id, ms, (unsigned)t);
+    /* Win16 timers run off the PC's 18.2 Hz tick, so SetTimer rounds the period
+     * UP to a multiple of 54.925 ms and can go no faster. The engine asks for
+     * 10 ms and got exactly that here, running the pet at ~100 Hz instead of
+     * the ~18 it was written for -- the cat tore around the playpen. Round the
+     * way KERNEL did. */
+    UINT period = ms ? (UINT)(((ms + 54) / 55) * 55) : 55;
+    UINT_PTR t = h ? SetTimer(h, id, period, NULL) : 0;
+    fprintf(stderr, "[win32] SetTimer(id=%u, %ums -> %ums tick) -> %u\n",
+            id, ms, period, (unsigned)t);
     cpu->ax = (uint16_t)t;
     b_ret(cpu, 10);
 }

@@ -704,6 +704,9 @@ void WING_WINGSTRETCHBLT(CPU *cpu);
  * Re-frame them as WinGStretchBlt's 20-byte list and reuse that path: bumping sp
  * by 4 first leaves it popping exactly the 24 bytes StretchBlt owes. */
 void GDI_STRETCHBLT(CPU *cpu) {
+    if (getenv("CATZ_LOG_ROP")) { static int n; if (n++ < 40)
+        fprintf(stderr, "[rop] StretchBlt rop=%08lX\n",
+                (unsigned long)a32(cpu, 0)); }
     uint16_t a[10];
     a[9] = a16(cpu, 22); a[8] = a16(cpu, 20); a[7] = a16(cpu, 18);   /* hdcDest x y */
     a[6] = a16(cpu, 16); a[5] = a16(cpu, 14);                        /* wDest hDest */
