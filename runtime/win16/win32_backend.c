@@ -939,6 +939,17 @@ void USER_POSTMESSAGE(CPU *cpu) {
     uint16_t wp   = b_a16(cpu, 4);             /* wParam@4 */
     uint32_t lp   = ((uint32_t)b_a16(cpu, 2) << 16) | b_a16(cpu, 0);  /* lParam@0/2 */
     BOOL ok = h ? PostMessageA(h, msg, wp, (LPARAM)lp) : FALSE;
+    if (getenv("CATZ_LOG_POST")) { static int n;
+        int at = atoi(getenv("CATZ_LOG_POST"));
+        if (++n == at) {            /* dump who is driving the post at this point */
+            extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
+            fprintf(stderr, "[postring] post #%d msg=%04X wp=%u lp=%08X, last 40 calls:\n",
+                    n, msg, wp, lp);
+            extern void dump_guest_stack(CPU *, int);
+            dump_guest_stack(cpu, 64);
+            fflush(stderr);
+        }
+    }
     cpu->ax = (uint16_t)(ok ? 1 : 0);
     b_ret(cpu, 10);
 }
@@ -1043,35 +1054,47 @@ void USER_RELEASEDC(CPU *cpu) {
 
 /* ===== USER: message loop ===== */
 
+/* Win16 MSG: hwnd@0(2) message@2(2) wParam@4(2) lParam@6(4) time@10(4) pt@14(4) */
+static void write_msg(CPU *cpu, uint16_t mseg, uint16_t moff, const MSG *m) {
+    mem_write16(cpu, mseg, (uint16_t)(moff +  0), put_hwnd(m->hwnd));
+    mem_write16(cpu, mseg, (uint16_t)(moff +  2), (uint16_t)m->message);
+    mem_write16(cpu, mseg, (uint16_t)(moff +  4), (uint16_t)m->wParam);
+    mem_write16(cpu, mseg, (uint16_t)(moff +  6), (uint16_t)(m->lParam & 0xFFFF));
+    mem_write16(cpu, mseg, (uint16_t)(moff +  8), (uint16_t)(m->lParam >> 16));
+    mem_write16(cpu, mseg, (uint16_t)(moff + 10), (uint16_t)(m->time & 0xFFFF));
+    mem_write16(cpu, mseg, (uint16_t)(moff + 12), (uint16_t)(m->time >> 16));
+    mem_write16(cpu, mseg, (uint16_t)(moff + 14), (uint16_t)(int16_t)m->pt.x);
+    mem_write16(cpu, mseg, (uint16_t)(moff + 16), (uint16_t)(int16_t)m->pt.y);
+}
+
 void USER_GETMESSAGE(CPU *cpu) {
     /* GetMessage(LPMSG@2/4, HWND@.., UINT, UINT) -> BOOL. Pump real messages. */
     uint16_t moff = b_a16(cpu, 6), mseg = b_a16(cpu, 8);
+    HWND filt     = get_hwnd(b_a16(cpu, 4));
+    UINT lo       = b_a16(cpu, 2), hi = b_a16(cpu, 0);
     MSG m;
-    BOOL r = GetMessageA(&m, NULL, 0, 0);
-    if (r) {
-        /* Win16 MSG: hwnd@0(2) message@2(2) wParam@4(2) lParam@6(4) time@10(4) pt@14(4) */
-        mem_write16(cpu, mseg, (uint16_t)(moff + 0), put_hwnd(m.hwnd));
-        mem_write16(cpu, mseg, (uint16_t)(moff + 2), (uint16_t)m.message);
-        mem_write16(cpu, mseg, (uint16_t)(moff + 4), (uint16_t)m.wParam);
-        mem_write16(cpu, mseg, (uint16_t)(moff + 6), (uint16_t)(m.lParam & 0xFFFF));
-        mem_write16(cpu, mseg, (uint16_t)(moff + 8), (uint16_t)(m.lParam >> 16));
-    }
+    BOOL r = GetMessageA(&m, filt, lo, hi);
+    if (r) write_msg(cpu, mseg, moff, &m);
     cpu->ax = (uint16_t)(r ? 1 : 0);
     b_ret(cpu, 10);   /* lpMsg(4)+hWnd(2)+min(2)+max(2) */
 }
 
 void USER_PEEKMESSAGE(CPU *cpu) {
+    /* PeekMessage(lpMsg@8/10, hWnd@6, wMsgFilterMin@4, wMsgFilterMax@2,
+     * wRemoveMsg@0). Both filters were being dropped -- every call passed
+     * (NULL, 0, 0) and so returned whatever was at the head of the queue.
+     * CATZDLL's drag pump peeks for mouse messages only, 0x200..0x202, and
+     * exits as soon as there are none; handing it the shell's own posted
+     * WM_CATZ_WINTERFACE instead meant it dispatched that, the shell re-posted
+     * it, and the pump never came back -- the screen froze the moment a cat
+     * was adopted. */
     uint16_t moff = b_a16(cpu, 8), mseg = b_a16(cpu, 10);
+    HWND filt        = get_hwnd(b_a16(cpu, 6));
+    UINT lo          = b_a16(cpu, 4), hi = b_a16(cpu, 2);
     uint16_t wRemove = b_a16(cpu, 0);
     MSG m;
-    BOOL r = PeekMessageA(&m, NULL, 0, 0, wRemove ? PM_REMOVE : PM_NOREMOVE);
-    if (r) {
-        mem_write16(cpu, mseg, (uint16_t)(moff + 0), put_hwnd(m.hwnd));
-        mem_write16(cpu, mseg, (uint16_t)(moff + 2), (uint16_t)m.message);
-        mem_write16(cpu, mseg, (uint16_t)(moff + 4), (uint16_t)m.wParam);
-        mem_write16(cpu, mseg, (uint16_t)(moff + 6), (uint16_t)(m.lParam & 0xFFFF));
-        mem_write16(cpu, mseg, (uint16_t)(moff + 8), (uint16_t)(m.lParam >> 16));
-    }
+    BOOL r = PeekMessageA(&m, filt, lo, hi, wRemove ? PM_REMOVE : PM_NOREMOVE);
+    if (r) write_msg(cpu, mseg, moff, &m);
     cpu->ax = (uint16_t)(r ? 1 : 0);
     b_ret(cpu, 12);
 }

@@ -1144,12 +1144,9 @@ void KERNEL_OUTPUTDEBUGSTRING(CPU *cpu) {
        that led there. Its own log names the source line but not the path. */
     {   const char *trap = getenv("CATZ_TRAP");
         if (trap && strstr(s, trap)) {
-            extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
-            fprintf(stderr, "\n[trap] last 48 calls (oldest first):\n");
-            for (int k = 48; k > 0; k--) {
-                const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)k) & (CATZ_FN_RING_SIZE - 1)];
-                if (nm) fprintf(stderr, "  %s\n", nm);
-            }
+            extern void dump_guest_stack(CPU *, int);
+            fprintf(stderr, "\n[trap] engine reported a failure\n");
+            dump_guest_stack(cpu, 64);
             fflush(stderr);
         }
     }
