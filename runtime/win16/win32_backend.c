@@ -509,6 +509,114 @@ extern void wing_draw_end(CPU *, uint16_t, const RECT *);
 extern int  wing_is_dc(uint16_t);
 extern HDC  wing_state_dc(CPU *, uint16_t);
 
+/* GetTextExtent(hdc@6, lpString@2/4, nCount@0) -> width in AX, height in DX.
+ * Stubbed to 0, so every string the engine measured came back zero wide -- and
+ * it lays its panel's menu bar out from these. "&Options" and "&Help" were
+ * given rectangles like (5,25)-(5,38), zero columns across, so DrawText clipped
+ * them to nothing and all that survived was the underline under the accelerator.
+ * That is the mangled text at the top of the shelf. */
+void GDI_GETTEXTEXTENT(CPU *cpu) {
+    uint16_t g  = b_a16(cpu, 6);
+    uint16_t so = b_a16(cpu, 2), ss = b_a16(cpu, 4);
+    int n       = (int16_t)b_a16(cpu, 0);
+    extern HDC wing_state_dc(CPU *, uint16_t);
+    HDC dc = wing_is_dc(g) ? wing_state_dc(cpu, g) : get_hdc(g);
+    char buf[512] = "";
+    if (ss) b_asciiz(cpu, ss, so, buf, sizeof buf);
+    if (n < 0 || n > (int)strlen(buf)) n = (int)strlen(buf);
+    SIZE sz = { 0, 0 };
+    if (dc) GetTextExtentPoint32A(dc, buf, n, &sz);
+    if (getenv("CATZ_LOG_TEXT")) { static int k; if (k++ < 15)
+        fprintf(stderr, "[ext] hdc=%u dc=%p \"%s\" n=%d -> %ldx%ld\n",
+            g, (void*)dc, buf, n, (long)sz.cx, (long)sz.cy); }
+    cpu->ax = (uint16_t)sz.cx;
+    cpu->dx = (uint16_t)sz.cy;
+    b_ret(cpu, 8);
+}
+
+/* ===== cursors, capture and fonts =====
+ * LoadCursor and SetCursor were stubs, so whatever the engine set last stuck:
+ * it shows the hourglass while it loads and then restores the arrow, and with
+ * the restore going nowhere the pointer stayed an hourglass over the whole
+ * window. SetCapture and ReleaseCapture were stubs too, which is why a drag
+ * that left the window lost the item. */
+#define MAXCUR 32
+static HCURSOR g_cur[MAXCUR];
+static int g_ncur = 1;
+
+static uint16_t put_hcur(HCURSOR h) {
+    if (!h) return 0;
+    for (int i = 1; i < g_ncur; i++) if (g_cur[i] == h) return (uint16_t)i;
+    if (g_ncur >= MAXCUR) return 0;
+    g_cur[g_ncur] = h; return (uint16_t)g_ncur++;
+}
+
+void USER_LOADCURSOR(CPU *cpu) {               /* (hInstance@4, lpCursorName@0/2) */
+    uint16_t inst = b_a16(cpu, 4);
+    uint16_t noff = b_a16(cpu, 0), nseg = b_a16(cpu, 2);
+    HCURSOR h = NULL;
+    if (!inst || !nseg) {
+        /* A standard cursor: the name is an ordinal, and Win16 used the same
+           IDC_ values Win32 still does. */
+        h = LoadCursorA(NULL, MAKEINTRESOURCEA(noff ? noff : 32512));
+    } else {
+        char nm[64] = "";
+        b_asciiz(cpu, nseg, noff, nm, sizeof nm);
+        h = LoadCursorA(NULL, IDC_ARROW);      /* app cursors: arrow will do */
+        (void)nm;
+    }
+    cpu->ax = put_hcur(h);
+    b_ret(cpu, 6);
+}
+
+void USER_SETCURSOR(CPU *cpu) {                /* (hCursor@0) -> previous */
+    uint16_t g = b_a16(cpu, 0);
+    HCURSOR h = (g && g < MAXCUR) ? g_cur[g] : NULL;
+    HCURSOR prev = SetCursor(h);
+    cpu->ax = put_hcur(prev);
+    b_ret(cpu, 2);
+}
+
+void USER_SETCAPTURE(CPU *cpu) {               /* (hWnd@0) -> previous */
+    HWND h = get_hwnd(b_a16(cpu, 0));
+    HWND prev = h ? SetCapture(h) : NULL;
+    cpu->ax = prev ? put_hwnd(prev) : 0;
+    b_ret(cpu, 2);
+}
+
+void USER_RELEASECAPTURE(CPU *cpu) {
+    cpu->ax = (uint16_t)ReleaseCapture();
+    b_ret(cpu, 0);
+}
+
+/* CreateFontIndirect(lpLogFont@0/2). The Win16 LOGFONT is packed: lfHeight@0(2)
+ * lfWidth@2 lfEscapement@4 lfOrientation@6 lfWeight@8, then seven bytes of
+ * flags, then a 32-byte face name. Stubbed to 0, every DrawText fell back to
+ * the default system font, which is why the shelf's caption did not look
+ * right. */
+void GDI_CREATEFONTINDIRECT(CPU *cpu) {
+    uint16_t o = b_a16(cpu, 0), sg = b_a16(cpu, 2);
+    if (!sg) { cpu->ax = 0; b_ret(cpu, 4); return; }
+    LOGFONTA lf;
+    memset(&lf, 0, sizeof lf);
+    lf.lfHeight      = (int16_t)mem_read16(cpu, sg, o);
+    lf.lfWidth       = (int16_t)mem_read16(cpu, sg, (uint16_t)(o + 2));
+    lf.lfEscapement  = (int16_t)mem_read16(cpu, sg, (uint16_t)(o + 4));
+    lf.lfOrientation = (int16_t)mem_read16(cpu, sg, (uint16_t)(o + 6));
+    lf.lfWeight      = (int16_t)mem_read16(cpu, sg, (uint16_t)(o + 8));
+    lf.lfItalic         = mem_read8(cpu, sg, (uint16_t)(o + 10));
+    lf.lfUnderline      = mem_read8(cpu, sg, (uint16_t)(o + 11));
+    lf.lfStrikeOut      = mem_read8(cpu, sg, (uint16_t)(o + 12));
+    lf.lfCharSet        = mem_read8(cpu, sg, (uint16_t)(o + 13));
+    lf.lfOutPrecision   = mem_read8(cpu, sg, (uint16_t)(o + 14));
+    lf.lfClipPrecision  = mem_read8(cpu, sg, (uint16_t)(o + 15));
+    lf.lfQuality        = mem_read8(cpu, sg, (uint16_t)(o + 16));
+    lf.lfPitchAndFamily = mem_read8(cpu, sg, (uint16_t)(o + 17));
+    b_asciiz(cpu, sg, (uint16_t)(o + 18), lf.lfFaceName, LF_FACESIZE);
+    cpu->ax = put_hgdi(CreateFontIndirectA(&lf));
+    b_ret(cpu, 4);
+}
+
 static HDC draw_dc(CPU *cpu, uint16_t g, RECT b, RECT *used, int *wing);
 
 /* GetSysColor returned 0 -- black -- for every system colour, and the engine
@@ -537,6 +645,9 @@ void USER_DRAWTEXT(CPU *cpu) {
     b_asciiz(cpu, ss, so, buf, sizeof buf);
     RECT used = r; int wing = 0;
     HDC dc = draw_dc(cpu, g, r, &used, &wing);
+    if (getenv("CATZ_LOG_TEXT")) { static int n; if (n++ < 20)
+        fprintf(stderr, "[text] DrawText hdc=%u \"%s\" n=%d rect=(%ld,%ld)-(%ld,%ld) fmt=%04X\n",
+            g, buf, n, (long)r.left, (long)r.top, (long)r.right, (long)r.bottom, fmt); }
     cpu->ax = (uint16_t)(dc ? DrawTextA(dc, buf, len, &r, fmt) : 0);
     if (dc && wing) wing_draw_end(cpu, g, &used);
     b_ret(cpu, 14);

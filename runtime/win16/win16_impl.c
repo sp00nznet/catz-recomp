@@ -319,16 +319,26 @@ static struct { HDC dc; HBITMAP bm; void *bits; HGDIOBJ obm; int i, w, h; }
 static HDC wing_host_dc(CPU *cpu, uint16_t gdc, int *out_i) {
     int d = (int)gdc - WING_DC_HANDLE;
     if (d < 0 || d >= WING_DC_MAX) return NULL;
-    int i = wing_index_of(g_wingdc_sel[d]);
-    if (i < 0) return NULL;
-    if (out_i) *out_i = i;
-    if (g_wdib[d].dc && g_wdib[d].i == i) return g_wdib[d].dc;
-    if (g_wdib[d].dc) {
-        SelectObject(g_wdib[d].dc, g_wdib[d].obm);
-        DeleteObject(g_wdib[d].bm); DeleteDC(g_wdib[d].dc);
-        memset(&g_wdib[d], 0, sizeof g_wdib[d]);
+    /* The DC has to exist before any surface is selected into it: the engine
+       selects its font and measures strings against a bare WinG DC, and with
+       nothing to hand back those calls were lost -- GetTextExtent returned zero
+       for every string, so the panel's menu bar was laid out zero columns wide
+       and DrawText clipped "&Options" and "&Help" away to their underlines. */
+    if (!g_wdib[d].dc) {
+        g_wdib[d].dc = CreateCompatibleDC(NULL);
+        g_wdib[d].i  = -1;
+        if (!g_wdib[d].dc) return NULL;
     }
-    if (g_wing[i].bpp != 8) return NULL;       /* only the 8-bit surfaces exist */
+    int i = wing_index_of(g_wingdc_sel[d]);
+    if (i < 0) return g_wdib[d].dc;            /* no surface yet: state only */
+    if (out_i) *out_i = i;
+    if (g_wdib[d].i == i) return g_wdib[d].dc;
+    if (g_wdib[d].bm) {                        /* rebind to the new surface */
+        SelectObject(g_wdib[d].dc, g_wdib[d].obm);
+        DeleteObject(g_wdib[d].bm);
+        g_wdib[d].bm = NULL; g_wdib[d].bits = NULL; g_wdib[d].i = -1;
+    }
+    if (g_wing[i].bpp != 8) return g_wdib[d].dc;
     unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
     memset(bi, 0, sizeof bi);
     BITMAPINFOHEADER *h = (BITMAPINFOHEADER *)bi;
@@ -337,14 +347,13 @@ static HDC wing_host_dc(CPU *cpu, uint16_t gdc, int *out_i) {
     h->biPlanes = 1; h->biBitCount = 8; h->biCompression = BI_RGB;
     h->biClrUsed = 256;
     memcpy(bi + sizeof(BITMAPINFOHEADER), g_wing[i].pal, 256 * 4);
-    HDC dc = CreateCompatibleDC(NULL);
-    if (!dc) return NULL;
+    HDC dc = g_wdib[d].dc;
     void *bits = NULL;
     HBITMAP bm = CreateDIBSection(dc, (const BITMAPINFO *)bi, DIB_RGB_COLORS,
                                   &bits, NULL, 0);
-    if (!bm || !bits) { if (bm) DeleteObject(bm); DeleteDC(dc); return NULL; }
+    if (!bm || !bits) { if (bm) DeleteObject(bm); return dc; }
     g_wdib[d].obm  = SelectObject(dc, bm);
-    g_wdib[d].dc   = dc;   g_wdib[d].bm = bm;  g_wdib[d].bits = bits;
+    g_wdib[d].bm   = bm;   g_wdib[d].bits = bits;
     g_wdib[d].i    = i;    g_wdib[d].w  = g_wing[i].w; g_wdib[d].h = g_wing[i].h;
     /* Give the DC the surface's own palette. The engine specifies its colours
        as PALETTEINDEX values, which resolve against the DC's logical palette --
@@ -392,14 +401,15 @@ HDC wing_state_dc(CPU *cpu, uint16_t gdc) { return wing_host_dc(cpu, gdc, NULL);
 HDC wing_draw_begin(CPU *cpu, uint16_t gdc, const RECT *bounds) {
     int i = -1;
     HDC dc = wing_host_dc(cpu, gdc, &i);
-    if (!dc) return NULL;
+    int d = (int)gdc - WING_DC_HANDLE;
+    if (!dc || d < 0 || d >= WING_DC_MAX || !g_wdib[d].bits) return NULL;
     wing_sync(cpu, (int)gdc - WING_DC_HANDLE, bounds, 1);
     return dc;
 }
 
 void wing_draw_end(CPU *cpu, uint16_t gdc, const RECT *bounds) {
     int d = (int)gdc - WING_DC_HANDLE;
-    if (d < 0 || d >= WING_DC_MAX || !g_wdib[d].dc) return;
+    if (d < 0 || d >= WING_DC_MAX || !g_wdib[d].bits) return;
     wing_sync(cpu, d, bounds, 0);
 }
 

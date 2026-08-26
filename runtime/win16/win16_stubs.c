@@ -32,9 +32,7 @@ void CTL3DV2_CTL3DUNREGISTER(CPU *cpu) { (void)cpu; WIN16_LOG("CTL3DUNREGISTER")
 /* ===== GDI ===== */
 void GDI_BITBLT(CPU *cpu) { (void)cpu; WIN16_LOG("BITBLT"); cpu->ax = 0; cpu->sp += 4 + 20; }
 void GDI_CREATEDIBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIBITMAP"); cpu->ax = 0; cpu->sp += 4 + 20; }
-void GDI_CREATEFONTINDIRECT(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEFONTINDIRECT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_GETDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("GETDIBITS"); cpu->ax = 0; cpu->sp += 4 + 18; }
-void GDI_GETTEXTEXTENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETTEXTEXTENT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void GDI_LINETO(CPU *cpu) { (void)cpu; WIN16_LOG("LINETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_MOVETO(CPU *cpu) { (void)cpu; WIN16_LOG("MOVETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_STRETCHDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("STRETCHDIBITS"); cpu->ax = 0; cpu->sp += 4 + 32; }
@@ -117,15 +115,11 @@ void USER_ISDIALOGMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("ISDIALOGMESSAGE"); c
 void USER_ISDLGBUTTONCHECKED(CPU *cpu) { (void)cpu; WIN16_LOG("ISDLGBUTTONCHECKED"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_ISICONIC(CPU *cpu) { (void)cpu; WIN16_LOG("ISICONIC"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_ISWINDOWVISIBLE(CPU *cpu) { (void)cpu; WIN16_LOG("ISWINDOWVISIBLE"); cpu->ax = 0; cpu->sp += 4 + 2; }
-void USER_LOADCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("LOADCURSOR"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_MOVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("MOVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_REDRAWWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("REDRAWWINDOW"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void USER_RELEASECAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("RELEASECAPTURE"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_SENDDLGITEMMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDDLGITEMMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_SENDMESSAGE(CPU *cpu) { (void)cpu; WIN16_LOG("SENDMESSAGE"); cpu->ax = 0; cpu->sp += 4 + 10; }
-void USER_SETCAPTURE(CPU *cpu) { (void)cpu; WIN16_LOG("SETCAPTURE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SETCLASSWORD(CPU *cpu) { (void)cpu; WIN16_LOG("SETCLASSWORD"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void USER_SETCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETCURSORPOS"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_SETDLGITEMINT(CPU *cpu) { (void)cpu; WIN16_LOG("SETDLGITEMINT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_SETSCROLLPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLPOS"); cpu->ax = 0; cpu->sp += 4 + 8; }
