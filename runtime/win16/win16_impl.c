@@ -90,6 +90,10 @@ static uint16_t galloc(CPU *cpu, uint32_t bytes) {
     }
     uint16_t s = cpu_alloc_selector(cpu, need);   /* bump fresh */
     if (s) { g_sel_base[s] = cpu->sel_base[s]; g_sel_size[s] = need; }
+    else { static int told; if (!told++) fprintf(stderr,
+        "[win16] galloc(%u) FAILED: next_sel=%04X heap_next=%u heap_end=%u freelist=%d\n",
+        (unsigned)bytes, cpu->next_sel, (unsigned)cpu->heap_next,
+        (unsigned)cpu->heap_end, fl_n); }
     return s;
 }
 
@@ -1301,14 +1305,31 @@ static int map_guest_path(const char *g, char *host, int hostsz) {
     if (p) {
         snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, g + (p - low));
     } else {
-        /* Everything else the engine opens by absolute guest path (pet .cat
-         * files, sound/config files) lives in the install root; the guest drive
-         * and directory are whatever the original install used, so match on the
-         * leaf only. */
-        const char *leaf = g;
-        for (const char *q = g; *q; q++) if (*q == '\\' || *q == '/') leaf = q + 1;
-        if (!*leaf) return 0;
-        snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, leaf);
+        /* Everything else the engine opens by absolute guest path, and the guest
+         * drive and directory are whatever the original install used. Matching on
+         * the leaf alone threw the subdirectory away, so the playpen's background
+         * art -- "\\playpenz\\CARPET.BMP" and friends, which live in PLAYPENZ/ --
+         * was looked for in the install root and never found. That is what failed
+         * right after adopting a cat, and the engine spun on it. Walk the path
+         * from the left and take the longest tail that actually exists. */
+        const char *seg[16]; int nseg = 0;
+        seg[nseg++] = g;
+        for (const char *q = g; *q && nseg < 16; q++)
+            if ((*q == '\\' || *q == '/') && q[1]) seg[nseg++] = q + 1;
+        int found = 0;
+        for (int k = 0; k < nseg && !found; k++) {
+            char cand[256];
+            snprintf(cand, sizeof cand, "%s/%s", CATZ_DATA_DIR, seg[k]);
+            for (char *q = cand; *q; q++) if (*q == '\\') *q = '/';
+            FILE *probe = fopen(cand, "rb");
+            if (probe) { fclose(probe);
+                         snprintf(host, hostsz, "%s", cand); found = 1; }
+        }
+        if (!found) {                    /* report the leaf, as before */
+            const char *leaf = seg[nseg - 1];
+            if (!*leaf) return 0;
+            snprintf(host, hostsz, "%s/%s", CATZ_DATA_DIR, leaf);
+        }
     }
     for (char *q = host; *q; q++) if (*q == '\\') *q = '/';
     return 1;
@@ -1333,6 +1354,28 @@ void dos_int21(CPU *cpu) {
         cpu->al = 5; cpu->ah = 0;
         cpu->flags &= ~FLAG_CF;
         break;
+    case 0x2A: {                           /* get date */
+        /* Unimplemented, this returned whatever was in the registers, and
+           the engine writes the result to the save file as the day it last
+           saw your cat -- it had been storing 'day 58 of month 0, year 0'.
+           It dates the pet from this, so it has to be the real date. */
+        SYSTEMTIME st; GetLocalTime(&st);
+        cpu->cx = st.wYear;
+        cpu->dh = (uint8_t)st.wMonth;
+        cpu->dl = (uint8_t)st.wDay;
+        cpu->al = (uint8_t)st.wDayOfWeek;
+        cpu->flags &= ~FLAG_CF;
+        break;
+    }
+    case 0x2C: {                           /* get time */
+        SYSTEMTIME st; GetLocalTime(&st);
+        cpu->ch = (uint8_t)st.wHour;
+        cpu->cl = (uint8_t)st.wMinute;
+        cpu->dh = (uint8_t)st.wSecond;
+        cpu->dl = (uint8_t)(st.wMilliseconds / 10);
+        cpu->flags &= ~FLAG_CF;
+        break;
+    }
     case 0x3D: {                           /* open existing file */
         char host[256];
         FILE *f = dos_map_path(cpu, host, sizeof host) ? fopen(host, "rb") : NULL;
@@ -1347,7 +1390,16 @@ void dos_int21(CPU *cpu) {
         } else {
             if (f) fclose(f);
             cpu->ax = 0x02; cpu->flags |= FLAG_CF;
-            IMPL_LOG("[INT21] open -> not found (%s)\n", g_last_dos_path);
+            /* A data file the engine cannot open is never harmless -- it ends
+               up as a null object several layers later. Say so, once each. */
+            { static char told[24][192]; static int ntold; int seen = 0;
+              for (int i = 0; i < ntold; i++)
+                  if (!strcmp(told[i], g_last_dos_path)) { seen = 1; break; }
+              if (!seen) {
+                  if (ntold < 24) snprintf(told[ntold++], 192, "%s", g_last_dos_path);
+                  fprintf(stderr, "[INT21] open FAILED: %s (tried %s)\n",
+                          g_last_dos_path, host);
+              } }
         }
         break;
     }
@@ -1469,6 +1521,38 @@ static void ini_check_selectors(CPU *cpu, const char *who,
     fflush(stderr);
 }
 
+/* WritePrivateProfileString was a stub returning 0, so the engine could not
+ * persist anything: not its settings, and not a newly adopted cat. It writes
+ * the pet out and reads it straight back, got nothing, and ended up with a null
+ * object it then spun on. Same file resolution as the read side.
+ *
+ * Win16 args (PASCAL, last pushed at offset 0):
+ *   lpFileName@0(4) lpString@4(4) lpKeyName@8(4) lpAppName@12(4) */
+void KERNEL_WRITEPRIVATEPROFILESTRING(CPU *cpu) {
+    uint16_t fnoff = a16(cpu, 0),  fnseg = a16(cpu, 2);
+    uint16_t vloff = a16(cpu, 4),  vlseg = a16(cpu, 6);
+    uint16_t kyoff = a16(cpu, 8),  kyseg = a16(cpu, 10);
+    uint16_t apoff = a16(cpu, 12), apseg = a16(cpu, 14);
+
+    char app[128] = "", key[128] = "", val[512] = "", file[192] = "";
+    if (apseg) read_asciiz(cpu, apseg, apoff, app, sizeof app);
+    if (kyseg) read_asciiz(cpu, kyseg, kyoff, key, sizeof key);
+    if (vlseg) read_asciiz(cpu, vlseg, vloff, val, sizeof val);
+    if (fnseg) read_asciiz(cpu, fnseg, fnoff, file, sizeof file);
+
+    char host[320];
+    ini_resolve(file, app, key, host, sizeof host);
+    /* A NULL key erases the whole section, a NULL value erases the key --
+       both are how Win16 callers clear state, so pass the nulls through. */
+    BOOL ok = WritePrivateProfileStringA(apseg ? app : NULL,
+                                         kyseg ? key : NULL,
+                                         vlseg ? val : NULL, host);
+    IMPL_LOG("[ini] WritePrivateProfileString(%s, [%s] %s = ""%s"") -> %d\n",
+             host, app, key, val, (int)ok);
+    cpu->ax = (uint16_t)(ok ? 1 : 0);
+    ret(cpu, 16);
+}
+
 void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
     /* (lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, lpFileName) */
     uint16_t fnoff = a16(cpu, 0),  fnseg = a16(cpu, 2);
@@ -1489,6 +1573,16 @@ void KERNEL_GETPRIVATEPROFILESTRING(CPU *cpu) {
     char val[1024];
     DWORD n = GetPrivateProfileStringA(apseg ? app : NULL, kyseg ? key : NULL,
                                        def, val, sizeof val, host);
+    /* The playpen wallpaper is the one setting the engine cannot cope with
+       missing: with no name it composes the path "\\playpenz\\", fails to open a
+       directory, and leaves a null draw object it then spins on -- which is
+       what locked the screen after adopting a cat. A save written before the
+       key existed simply has not got one, so stand in the plain backdrop and
+       let the engine persist the player's own choice over it. */
+    if (!n && !strcmp(key, "playpenBitmap")) {
+        snprintf(val, sizeof val, "PLAIN.BMP");
+        n = (DWORD)strlen(val);
+    }
     if (n > (DWORD)nsize) n = nsize ? (DWORD)nsize - 1 : 0;   /* clamp to guest buffer */
     for (DWORD i = 0; i < n; i++) mem_write8(cpu, rsseg, (uint16_t)(rsoff + i), (uint8_t)val[i]);
     if (nsize) mem_write8(cpu, rsseg, (uint16_t)(rsoff + n), 0);
