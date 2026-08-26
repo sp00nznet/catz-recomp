@@ -92,6 +92,8 @@ static HWND g_main_hwnd;
    desktop. GetDC(NULL) asks for that overlay, so it has to go to the popup;
    sending it to the framed playpen painted the pet layer's clear colour over
    the whole pen. */
+#define CATZ_SCREEN_W 640
+#define CATZ_SCREEN_H 480
 static HWND g_screen_hwnd;
 
 static GuestClass *cls_find(const char *name) {
@@ -263,11 +265,38 @@ void USER_CREATEWINDOW(CPU *cpu) {
     if (!(style & WS_CHILD)) parent = NULL;
     else if (!parent) style &= ~(uint32_t)WS_CHILD;
 
+    /* The engine makes two top-level windows: the framed playpen, and a 640x480
+       WS_POPUP it immediately hides because it means to paint the bare desktop.
+       Showing both left two overlapping surfaces with different content, which
+       looks exactly like the pet smearing. Keep the pet indoors instead: give
+       the frame a client area of the 640x480 we already report through
+       GetClientRect, and make the overlay a child filling it. One window, one
+       drawing surface. CATZ_DESKTOP=1 keeps the original two-window layout. */
+    int as_child = 0;
+    if (!getenv("CATZ_DESKTOP") && g_main_hwnd && !g_screen_hwnd
+        && (style & WS_POPUP) && !(style & WS_CHILD)) {
+        as_child = 1;
+        style  = WS_CHILD | WS_VISIBLE;
+        parent = g_main_hwnd;
+        x = y = 0;
+        w = CATZ_SCREEN_W;
+        h = CATZ_SCREEN_H;
+    }
+
     HWND hw = CreateWindowExA(0, hostcls, title, (DWORD)style, x, y, w, h,
                               parent, NULL, GetModuleHandle(NULL), NULL);
     uint16_t gh = hw ? put_hwnd(hw) : 0;
-    if (hw && !g_main_hwnd) g_main_hwnd = hw;
-    if (hw && !g_screen_hwnd && (style & WS_POPUP) && !(style & WS_CHILD))
+    if (hw && !g_main_hwnd) {
+        g_main_hwnd = hw;
+        if (!getenv("CATZ_DESKTOP")) {      /* client area == the engine's screen */
+            RECT rc = { 0, 0, CATZ_SCREEN_W, CATZ_SCREEN_H };
+            AdjustWindowRect(&rc, (DWORD)style, FALSE);
+            SetWindowPos(hw, NULL, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+    if (hw && !g_screen_hwnd
+        && (as_child || ((style & WS_POPUP) && !(style & WS_CHILD))))
         g_screen_hwnd = hw;
     if (gh) {
         g_hwnd_proc_seg[gh] = c ? c->seg : g_wndproc_seg;
