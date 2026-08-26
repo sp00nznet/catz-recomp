@@ -437,6 +437,69 @@ void USER_FILLRECT(CPU *cpu) {                 /* (hdc@6, lpRect@2/4, hbr@0) */
  * previous rect's bottom: the pet was stamped `bottom` pixels too low, by a
  * different amount every frame as the frame height changed, which is what
  * smeared cat faces across the screen. */
+/* The remaining out-parameter APIs the engine reaches. A stub that pops its
+ * arguments but never writes through its pointer leaves the caller reading its
+ * own stack -- that is how SetViewportOrgEx smeared the pet across the screen,
+ * so fill these in rather than leave the same trap set. */
+void GDI_GETOBJECT(CPU *cpu) {             /* (hgdiobj@6, cb@4, lpv@0/2) */
+    HGDIOBJ o = get_hgdi(b_a16(cpu, 6));
+    int cb = (int16_t)b_a16(cpu, 4);
+    uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
+    BITMAP bm;
+    if (o && seg && cb >= 14 && GetObject(o, sizeof bm, &bm)) {
+        /* Win16 BITMAP: bmType, bmWidth, bmHeight, bmWidthBytes (int16 each),
+           bmPlanes, bmBitsPixel (bytes), bmBits (far pointer). */
+        mem_write16(cpu, seg, off,                    (uint16_t)bm.bmType);
+        mem_write16(cpu, seg, (uint16_t)(off + 2),    (uint16_t)bm.bmWidth);
+        mem_write16(cpu, seg, (uint16_t)(off + 4),    (uint16_t)bm.bmHeight);
+        mem_write16(cpu, seg, (uint16_t)(off + 6),    (uint16_t)bm.bmWidthBytes);
+        mem_write8 (cpu, seg, (uint16_t)(off + 8),    (uint8_t)bm.bmPlanes);
+        mem_write8 (cpu, seg, (uint16_t)(off + 9),    (uint8_t)bm.bmBitsPixel);
+        mem_write16(cpu, seg, (uint16_t)(off + 10),   0);
+        mem_write16(cpu, seg, (uint16_t)(off + 12),   0);
+        cpu->ax = 14;
+    } else {
+        cpu->ax = 0;
+    }
+    b_ret(cpu, 8);
+}
+
+void MMSYSTEM_TIMEGETDEVCAPS(CPU *cpu) {   /* (lpTimeCaps@2/4, cb@0) */
+    uint16_t off = b_a16(cpu, 2), seg = b_a16(cpu, 4);
+    if (seg) {                              /* TIMECAPS { wPeriodMin, wPeriodMax } */
+        mem_write16(cpu, seg, off, 1);
+        mem_write16(cpu, seg, (uint16_t)(off + 2), 0xFFFF);
+    }
+    cpu->ax = 0;                            /* TIMERR_NOERROR */
+    b_ret(cpu, 6);
+}
+
+void USER_GETDLGITEMINT(CPU *cpu) {        /* (hwnd@8, id@6, lpXlated@2/4, sgn@0) */
+    uint16_t off = b_a16(cpu, 2), seg = b_a16(cpu, 4);
+    if (seg) mem_write16(cpu, seg, off, 0); /* not translated */
+    cpu->ax = 0;
+    b_ret(cpu, 10);
+}
+
+/* GetCursorPos(LPPOINT) is another out-parameter API the engine calls every
+ * frame -- it is how the pet knows where the mouse is. As a stub it wrote
+ * nothing, so the engine read whatever was on the stack as the cursor position.
+ * Report it in the same space as the DC we hand out for GetDC(NULL): the pet
+ * overlay window's client area. */
+void USER_GETCURSORPOS(CPU *cpu) {         /* (lpPoint@0/2) */
+    uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
+    POINT p = { 0, 0 };
+    GetCursorPos(&p);
+    HWND h = g_screen_hwnd ? g_screen_hwnd : g_main_hwnd;
+    if (h) ScreenToClient(h, &p);
+    if (seg) {
+        mem_write16(cpu, seg, off, (uint16_t)(int16_t)p.x);
+        mem_write16(cpu, seg, (uint16_t)(off + 2), (uint16_t)(int16_t)p.y);
+    }
+    cpu->ax = 0;
+    b_ret(cpu, 4);
+}
+
 void GDI_SETVIEWPORTORGEX(CPU *cpu) {      /* (hdc@8, X@6, Y@4, lpPoint@0/2) */
     HDC dc = get_hdc(b_a16(cpu, 8));
     int x = (int16_t)b_a16(cpu, 6), y = (int16_t)b_a16(cpu, 4);

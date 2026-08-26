@@ -308,6 +308,16 @@ static void fnc_report(void) {
     for (int i = 0; i < 8192; i++)
         if (g_fnc[i].n) fprintf(stderr, "[fnc] %s %lu\n", g_fnc[i].n, g_fnc[i].c);
 }
+/* Stub-hit recorder: which unimplemented Win16 APIs did this session reach? */
+static const char *g_stubs[256];
+static int g_nstubs;
+void catz_stub_hit(const char *n) {
+    if (g_nstubs < 256) g_stubs[g_nstubs++] = n;
+}
+static void stub_report(void) {
+    fprintf(stderr, "[stubs] %d unimplemented APIs reached:\n", g_nstubs);
+    for (int i = 0; i < g_nstubs; i++) fprintf(stderr, "[stubs]   %s\n", g_stubs[i]);
+}
 uint16_t g_wsel;
 static struct { const char *n; uint16_t s; unsigned long c; } g_selw[4096];
 static int g_nselw;
@@ -366,6 +376,7 @@ int main(int argc, char *argv[])
       if (ws) { g_wsel = (uint16_t)strtoul(ws, NULL, 16); atexit(selw_report); } }
     if (getenv("CATZ_FN_COUNT")) { g_fncount = 1; atexit(fnc_report); }
     if (getenv("CATZ_WATCH_DS")) g_watch_ds = 1;
+    if (getenv("CATZ_STUB_HITS")) atexit(stub_report);
     const char *img = (argc > 1) ? argv[1] : CATZ_IMAGE_PATH;
 
     /* Unbuffered: the engine dies by crash/abort often enough that a lost

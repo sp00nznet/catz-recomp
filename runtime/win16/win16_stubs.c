@@ -5,12 +5,11 @@
 #include "runtime_api.h"
 #include <stdio.h>
 
-#ifdef CATZ_TRACE_WIN16
+/* Each stub records itself the first time it runs, so CATZ_STUB_HITS
+   lists exactly which unimplemented APIs a session reaches. */
+void catz_stub_hit(const char *n);
 #define WIN16_LOG(n) do { static int _seen; if (!_seen) { _seen = 1; \
-    fprintf(stderr, "[win16] %s (stub)\n", (n)); } } while (0)
-#else
-#define WIN16_LOG(n) ((void)0)
-#endif
+    catz_stub_hit(n); } } while (0)
 /* Loud warning the first time an unknown-purge stub runs: its stack
  * cleanup is a guess and may corrupt. Add it to PURGE in win16.py. */
 #define WIN16_UNKNOWN(n) do { static int _w; if (!_w) { _w = 1; \
@@ -36,7 +35,6 @@ void GDI_CREATEDIBITMAP(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIBITMAP"); cpu-
 void GDI_CREATEFONTINDIRECT(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEFONTINDIRECT"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void GDI_ELLIPSE(CPU *cpu) { (void)cpu; WIN16_LOG("ELLIPSE"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void GDI_GETDIBITS(CPU *cpu) { (void)cpu; WIN16_LOG("GETDIBITS"); cpu->ax = 0; cpu->sp += 4 + 18; }
-void GDI_GETOBJECT(CPU *cpu) { (void)cpu; WIN16_LOG("GETOBJECT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void GDI_GETTEXTEXTENT(CPU *cpu) { (void)cpu; WIN16_LOG("GETTEXTEXTENT"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void GDI_LINETO(CPU *cpu) { (void)cpu; WIN16_LOG("LINETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void GDI_MOVETO(CPU *cpu) { (void)cpu; WIN16_LOG("MOVETO"); cpu->ax = 0; cpu->sp += 4 + 6; }
@@ -62,7 +60,6 @@ void KERNEL___AHSHIFT(CPU *cpu) { (void)cpu; WIN16_LOG("__AHSHIFT"); cpu->ax = 0
 
 /* ===== MMSYSTEM ===== */
 void MMSYSTEM_SNDPLAYSOUND(CPU *cpu) { (void)cpu; WIN16_LOG("SNDPLAYSOUND"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void MMSYSTEM_TIMEGETDEVCAPS(CPU *cpu) { (void)cpu; WIN16_LOG("TIMEGETDEVCAPS"); cpu->ax = 0; cpu->sp += 4 + 6; }
 
 /* ===== SOSLIB03 ===== */
 void SOSLIB03_SOSDIGIACQUIREDRIVER(CPU *cpu) { (void)cpu; WIN16_LOG("SOSDIGIACQUIREDRIVER"); cpu->ax = 0; cpu->sp += 4; WIN16_UNKNOWN("SOSDIGIACQUIREDRIVER"); }
@@ -122,9 +119,7 @@ void USER_FRAMERECT(CPU *cpu) { (void)cpu; WIN16_LOG("FRAMERECT"); cpu->ax = 0; 
 void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_GETCLASSNAME(CPU *cpu) { (void)cpu; WIN16_LOG("GETCLASSNAME"); cpu->ax = 0; cpu->sp += 4 + 8; }
-void USER_GETCURSORPOS(CPU *cpu) { (void)cpu; WIN16_LOG("GETCURSORPOS"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_GETDESKTOPWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETDESKTOPWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
-void USER_GETDLGITEMINT(CPU *cpu) { (void)cpu; WIN16_LOG("GETDLGITEMINT"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_GETFOCUS(CPU *cpu) { (void)cpu; WIN16_LOG("GETFOCUS"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETSYSCOLOR(CPU *cpu) { (void)cpu; WIN16_LOG("GETSYSCOLOR"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_GETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("GETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 4; }
