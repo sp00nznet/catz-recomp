@@ -32,14 +32,22 @@ static inline void b_ret(CPU *cpu, int purge) { cpu->sp += 4 + purge; }
 static void b_asciiz(CPU *cpu, uint16_t seg, uint16_t off, char *out, int max);
 
 /* ---- guest HWND/HDC handle tables (16-bit guest handle <-> real) ---- */
-#define MAXH 64
+#define MAXH 256
 static HWND g_hwnd[MAXH];
 static HDC  g_hdc[MAXH];
 static int  g_nhwnd = 1, g_nhdc = 1;   /* 0 reserved as NULL */
 
+static void handle_table_full(const char *what) {
+    static const char *told[4]; static int n;
+    for (int i = 0; i < n; i++) if (told[i] == what) return;
+    if (n < 4) told[n++] = what;
+    fprintf(stderr, "[win32] %s handle table exhausted; the engine will see a creation failure\n", what);
+}
+
 static uint16_t put_hwnd(HWND h) {
     for (int i = 1; i < g_nhwnd; i++) if (g_hwnd[i] == h) return (uint16_t)i;
     if (g_nhwnd < MAXH) { g_hwnd[g_nhwnd] = h; return (uint16_t)g_nhwnd++; }
+    handle_table_full("window");
     return 0;
 }
 static HWND get_hwnd(uint16_t g) { return (g && g < MAXH) ? g_hwnd[g] : NULL; }
@@ -50,6 +58,7 @@ static uint16_t put_hdc(HDC h) {
     if (!h) return 0;
     for (int i = 1; i < g_nhdc; i++) if (!g_hdc[i]) { g_hdc[i] = h; return (uint16_t)i; }
     if (g_nhdc < MAXH) { g_hdc[g_nhdc] = h; return (uint16_t)g_nhdc++; }
+    handle_table_full("DC");
     return 0;
 }
 static void free_hdc(uint16_t g) { if (g && g < MAXH) g_hdc[g] = NULL; }
@@ -62,7 +71,7 @@ static int g_ngdi = 1;
 static uint16_t put_hgdi(HGDIOBJ h) {
     if (!h) return 0;
     for (int i = 1; i < g_ngdi; i++) if (!g_gdi[i]) { g_gdi[i] = h; return (uint16_t)i; }
-    if (g_ngdi >= MAXGDI) return 0;
+    if (g_ngdi >= MAXGDI) { handle_table_full("GDI object"); return 0; }
     g_gdi[g_ngdi] = h; return (uint16_t)g_ngdi++;
 }
 
@@ -530,9 +539,18 @@ void USER_GETDLGITEMINT(CPU *cpu) {        /* (hwnd@8, id@6, lpXlated@2/4, sgn@0
 void USER_GETCURSORPOS(CPU *cpu) {         /* (lpPoint@0/2) */
     uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
     POINT p = { 0, 0 };
-    GetCursorPos(&p);
-    HWND h = g_screen_hwnd ? g_screen_hwnd : g_main_hwnd;
-    if (h) ScreenToClient(h, &p);
+    /* CATZ_CURSOR=x,y pins the pointer where the engine thinks it is, so a
+       click can be aimed at a widget without commandeering the real mouse. */
+    const char *fc = getenv("CATZ_CURSOR");
+    if (fc) {
+        p.x = atoi(fc);
+        const char *c = strchr(fc, ',');
+        p.y = c ? atoi(c + 1) : 0;
+    } else {
+        GetCursorPos(&p);
+        HWND h = g_screen_hwnd ? g_screen_hwnd : g_main_hwnd;
+        if (h) ScreenToClient(h, &p);
+    }
     if (seg) {
         mem_write16(cpu, seg, off, (uint16_t)(int16_t)p.x);
         mem_write16(cpu, seg, (uint16_t)(off + 2), (uint16_t)(int16_t)p.y);

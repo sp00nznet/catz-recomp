@@ -268,9 +268,13 @@ void KERNEL_SIZEOFRESOURCE(CPU *cpu) {      /* SizeofResource(hInst,hResInfo) */
  * wrong one -- the blitted surface held nothing but its clear colour. Hand out a
  * distinct DC per call and track which bitmap is selected into each. */
 #define WING_DC_HANDLE 0x0DC0
-#define WING_DC_MAX    8
+/* One surface per live draw port. Six exist before the playpen even settles,
+ * so a table of eight ran out after the player picked up two toys: further
+ * surfaces got a handle but no slot, and every blit naming one silently fell
+ * back to whichever surface was current. */
+#define WING_DC_MAX    64
 static struct { uint16_t hbm, sel; int w, h, bpp, topdown; uint8_t pal[256 * 4]; }
-    g_wing[8];
+    g_wing[64];
 static int g_wing_cur = -1;          /* last surface selected into any WinG DC */
 static int g_nwing;
 static uint16_t g_wingdc_sel[WING_DC_MAX];   /* WinG DC -> selected hbm */
@@ -726,7 +730,7 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             int at = atoi(want + 4);
             if (!fired && seen++ >= at) {
                 fired = 1;
-                for (int q = 0; q < g_nwing && q < 8; q++) {
+                for (int q = 0; q < g_nwing && q < (int)(sizeof g_wing / sizeof g_wing[0]); q++) {
                     uint32_t st = (((uint32_t)g_wing[q].w * g_wing[q].bpp + 31) / 32) * 4;
                     uint32_t nb = st * (uint32_t)g_wing[q].h;
                     unsigned nz = 0; unsigned char seenv[256]; unsigned distinct = 0;
@@ -1066,6 +1070,19 @@ void KERNEL_OUTPUTDEBUGSTRING(CPU *cpu) {
         IMPL_LOG("%c%02X", i == 0 ? '|' : ' ', mem_read8(cpu, seg, (uint16_t)(off + i)));
     IMPL_LOG(" ]");
     fprintf(stderr, "[OutputDebugString] %s", s);
+    /* CATZ_TRAP=<substring>: when the engine logs a failure, print the calls
+       that led there. Its own log names the source line but not the path. */
+    {   const char *trap = getenv("CATZ_TRAP");
+        if (trap && strstr(s, trap)) {
+            extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
+            fprintf(stderr, "\n[trap] last 48 calls (oldest first):\n");
+            for (int k = 48; k > 0; k--) {
+                const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)k) & (CATZ_FN_RING_SIZE - 1)];
+                if (nm) fprintf(stderr, "  %s\n", nm);
+            }
+            fflush(stderr);
+        }
+    }
     cpu->ax = 0; ret(cpu, 4);
 }
 
