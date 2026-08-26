@@ -97,14 +97,11 @@ void USER_BRINGWINDOWTOTOP(CPU *cpu) { (void)cpu; WIN16_LOG("BRINGWINDOWTOTOP");
 void USER_CHECKDLGBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKDLGBUTTON"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CHECKMENUITEM(CPU *cpu) { (void)cpu; WIN16_LOG("CHECKMENUITEM"); cpu->ax = 0; cpu->sp += 4 + 6; }
 void USER_CLIPCURSOR(CPU *cpu) { (void)cpu; WIN16_LOG("CLIPCURSOR"); cpu->ax = 0; cpu->sp += 4 + 4; }
-void USER_CREATEDIALOG(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOG"); cpu->ax = 0; cpu->sp += 4 + 12; }
-void USER_CREATEDIALOGPARAM(CPU *cpu) { (void)cpu; WIN16_LOG("CREATEDIALOGPARAM"); cpu->ax = 0; cpu->sp += 4 + 16; }
 void USER_DESTROYICON(CPU *cpu) { (void)cpu; WIN16_LOG("DESTROYICON"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_DIALOGBOX(CPU *cpu) { (void)cpu; WIN16_LOG("DIALOGBOX"); cpu->ax = 0; cpu->sp += 4 + 12; }
 void USER_ENABLEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("ENABLEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 4; }
 void USER_ENUMWINDOWS(CPU *cpu) { (void)cpu; WIN16_LOG("ENUMWINDOWS"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_GETACTIVEWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETACTIVEWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
-void USER_GETASYNCKEYSTATE(CPU *cpu) { (void)cpu; WIN16_LOG("GETASYNCKEYSTATE"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_GETCLASSNAME(CPU *cpu) { (void)cpu; WIN16_LOG("GETCLASSNAME"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_GETDESKTOPWINDOW(CPU *cpu) { (void)cpu; WIN16_LOG("GETDESKTOPWINDOW"); cpu->ax = 0; cpu->sp += 4 + 0; }
 void USER_GETFOCUS(CPU *cpu) { (void)cpu; WIN16_LOG("GETFOCUS"); cpu->ax = 0; cpu->sp += 4 + 0; }
@@ -127,7 +124,6 @@ void USER_SETSCROLLRANGE(CPU *cpu) { (void)cpu; WIN16_LOG("SETSCROLLRANGE"); cpu
 void USER_SETWINDOWLONG(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWLONG"); cpu->ax = 0; cpu->sp += 4 + 8; }
 void USER_SETWINDOWPOS(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWPOS"); cpu->ax = 0; cpu->sp += 4 + 14; }
 void USER_SETWINDOWTEXT(CPU *cpu) { (void)cpu; WIN16_LOG("SETWINDOWTEXT"); cpu->ax = 0; cpu->sp += 4 + 6; }
-void USER_SWAPMOUSEBUTTON(CPU *cpu) { (void)cpu; WIN16_LOG("SWAPMOUSEBUTTON"); cpu->ax = 0; cpu->sp += 4 + 2; }
 void USER_SYSTEMPARAMETERSINFO(CPU *cpu) { (void)cpu; WIN16_LOG("SYSTEMPARAMETERSINFO"); cpu->ax = 0; cpu->sp += 4 + 10; }
 void USER_WINHELP(CPU *cpu) { (void)cpu; WIN16_LOG("WINHELP"); cpu->ax = 0; cpu->sp += 4 + 12; }
 

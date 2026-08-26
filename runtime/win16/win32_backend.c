@@ -534,6 +534,40 @@ void GDI_GETTEXTEXTENT(CPU *cpu) {
     b_ret(cpu, 8);
 }
 
+/* The engine polls the mouse button rather than waiting on messages -- its menu
+ * tracking, its drag loops and its hit testing all ask GetAsyncKeyState. Stubbed
+ * to 0 it read "never pressed", so a menu item highlighted and then immediately
+ * auto-unselected without ever running: most of the Options menu did nothing. */
+void USER_GETASYNCKEYSTATE(CPU *cpu) {         /* (vKey@0) */
+    int vk = (int16_t)b_a16(cpu, 0);
+    /* CATZ_CURSOR pins the pointer for testing; let it pin the button too, as
+       "x,y,b", or a scripted click could never work the menus. */
+    const char *fc = getenv("CATZ_CURSOR");
+    if (fc && (vk == VK_LBUTTON || vk == VK_RBUTTON)) {
+        char buf[64] = "";
+        if (fc[0] == '@') {
+            FILE *f = fopen(fc + 1, "r");
+            if (f) { if (!fgets(buf, sizeof buf, f)) buf[0] = 0; fclose(f); }
+        } else snprintf(buf, sizeof buf, "%s", fc);
+        const char *c = strchr(buf, ',');
+        const char *b = c ? strchr(c + 1, ',') : NULL;
+        int down = b ? atoi(b + 1) : 0;
+        cpu->ax = (uint16_t)((down && vk == VK_LBUTTON) ? 0x8000 : 0);
+        b_ret(cpu, 2);
+        return;
+    }
+    cpu->ax = (uint16_t)GetAsyncKeyState(vk);
+    b_ret(cpu, 2);
+}
+
+void USER_SWAPMOUSEBUTTON(CPU *cpu) {          /* (fSwap@0) -> previous */
+    /* Report the setting, never change it. The real call swaps the buttons
+       system-wide, and the engine passes 0 -- which would quietly un-swap the
+       mouse of anyone running left-handed. */
+    cpu->ax = (uint16_t)(GetSystemMetrics(SM_SWAPBUTTON) ? 1 : 0);
+    b_ret(cpu, 2);
+}
+
 /* ===== cursors, capture and fonts =====
  * LoadCursor and SetCursor were stubs, so whatever the engine set last stuck:
  * it shows the hourglass while it loads and then restores the arrow, and with
@@ -1111,6 +1145,61 @@ static int dlg_build(CPU *cpu, uint16_t hinst, uint16_t tmpl, HWND dlg,
                     "-> %dx%d px\n", tmpl, made, nitems, cx, cy, *out_w, *out_h);
     return 1;
 }
+
+/* Modeless dialogs. CreateDialog and CreateDialogParam were stubs returning 0,
+ * and every Options entry that ends in "..." -- General Options, CatNapz
+ * Options, Choose Another Kitten, Create Adoption Kit -- opens one. They
+ * highlighted and did nothing. Same construction as the modal path, minus the
+ * message pump: build the window from the template, run WM_INITDIALOG, show it
+ * and hand the handle back.
+ *
+ * Win16: HWND CreateDialogParam(HINSTANCE@14, lpTemplate@10/12, hWndParent@8,
+ *                               lpDialogFunc@4/6, dwInitParam@0) */
+static void create_dialog_common(CPU *cpu, int purge, uint32_t param) {
+    /* CreateDialog has no dwInitParam, so its whole argument list sits four
+       bytes lower than CreateDialogParam's. */
+    int k = (purge == 16) ? 0 : 4;
+    uint16_t tmpl = b_a16(cpu, 10 - k);
+    HWND parent   = get_hwnd(b_a16(cpu, 8 - k));
+    uint16_t poff = b_a16(cpu, 4 - k), pseg = b_a16(cpu, 6 - k);
+    if (!pseg) { cpu->ax = 0; b_ret(cpu, purge); return; }
+
+    const char *hostcls = g_ncls ? g_cls[0].name : "CatzGuestCls0";
+    HWND h = CreateWindowExA(0, hostcls, "Catz", WS_OVERLAPPEDWINDOW,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 470, 370,
+                             NULL, NULL, GetModuleHandle(NULL), NULL);
+    uint16_t gh = 0;
+    if (h) {
+        int tw = 0, th = 0;
+        char cap[128] = "";
+        if (dlg_build(cpu, b_a16(cpu, 14 - k), tmpl, h, &tw, &th, cap, sizeof cap)
+                && tw > 16 && th > 16) {
+            if (cap[0]) SetWindowTextA(h, cap);
+            RECT want = { 0, 0, tw, th };
+            AdjustWindowRect(&want, WS_OVERLAPPEDWINDOW, FALSE);
+            SetWindowPos(h, NULL, 0, 0, want.right - want.left,
+                         want.bottom - want.top, SWP_NOMOVE | SWP_NOZORDER);
+        }
+        gh = put_hwnd(h);
+        if (gh) { g_hwnd_proc_seg[gh] = pseg; g_hwnd_proc_off[gh] = poff; }
+        /* Honour the template's WS_VISIBLE rather than forcing the window up:
+           the engine creates its shelf panel this way and shows it itself. */
+        call_guest_wndproc(pseg, poff, gh, 0x0110 /* WM_INITDIALOG */, gh, param);
+        if (GetWindowLongA(h, GWL_STYLE) & WS_VISIBLE) {
+            ShowWindow(h, SW_SHOW);
+            UpdateWindow(h);
+        }
+        fprintf(stderr, "[win32] CreateDialog(template=%u dlgproc=seg%u:%04X)"
+                        " -> hwnd=%p guest=%u\n",
+                tmpl, pseg, poff, (void *)h, gh);
+    }
+    (void)parent;
+    cpu->ax = gh;
+    b_ret(cpu, purge);
+}
+
+void USER_CREATEDIALOG(CPU *cpu)      { create_dialog_common(cpu, 12, 0); }
+void USER_CREATEDIALOGPARAM(CPU *cpu) { create_dialog_common(cpu, 16, b_a32(cpu, 0)); }
 
 void USER_DIALOGBOXPARAM(CPU *cpu) {
     uint16_t tmpl  = b_a16(cpu, 10);           /* lpTemplateName@10/12 (an id) */
