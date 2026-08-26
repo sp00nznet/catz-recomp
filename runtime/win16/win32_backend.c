@@ -426,6 +426,31 @@ void USER_FILLRECT(CPU *cpu) {                 /* (hdc@6, lpRect@2/4, hbr@0) */
     b_ret(cpu, 8);
 }
 
+/* SetViewportOrgEx(hdc, X, Y, lpPoint) sets the DC's viewport origin and hands
+ * the PREVIOUS one back through lpPoint. XDrawPort::XCopyBits uses it exactly
+ * that way: it zeroes the origin, then offsets its destination rect by the old
+ * value so the rect is in device coordinates for the WinG blit that follows.
+ *
+ * As a stub this popped its arguments and wrote nothing, so lpPoint kept
+ * whatever was on the stack -- and the engine offset the pet's destination rect
+ * by that junk. It sat next to the rect locals, so the garbage was usually the
+ * previous rect's bottom: the pet was stamped `bottom` pixels too low, by a
+ * different amount every frame as the frame height changed, which is what
+ * smeared cat faces across the screen. */
+void GDI_SETVIEWPORTORGEX(CPU *cpu) {      /* (hdc@8, X@6, Y@4, lpPoint@0/2) */
+    HDC dc = get_hdc(b_a16(cpu, 8));
+    int x = (int16_t)b_a16(cpu, 6), y = (int16_t)b_a16(cpu, 4);
+    uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
+    POINT old = { 0, 0 };
+    if (dc) SetViewportOrgEx(dc, x, y, &old);
+    if (seg) {
+        mem_write16(cpu, seg, off, (uint16_t)(int16_t)old.x);
+        mem_write16(cpu, seg, (uint16_t)(off + 2), (uint16_t)(int16_t)old.y);
+    }
+    cpu->ax = 1;
+    b_ret(cpu, 10);
+}
+
 void USER_GETDC(CPU *cpu) {
     uint16_t gw = b_a16(cpu, 0);
     HWND h = get_hwnd(gw);
