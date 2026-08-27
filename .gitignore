@@ -30,3 +30,9 @@ build_*/
 
 # Diagnostic surface dumps (CATZ_DUMP_BLIT)
 *.bmp
+
+# Lifted output. This is a machine translation of the retail game's own code --
+# a derivative work of CATZDLL.DLL and CATZ.WAD -- so it is not redistributable
+# and is not shipped here. Regenerate it from your own copy of the game; see
+# "Building" in README.md.
+src/
