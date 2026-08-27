@@ -1256,6 +1256,34 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
                           bits, (const BITMAPINFO *)bi, DIB_RGB_COLORS, SRCCOPY);
     IMPL_LOG("[wing] StretchBlt %dx%d@%d,%d <- %dx%d@%d,%d src=%04X -> %d\n",
              wDest, hDest, xDest, yDest, wSrc, hSrc, xSrc, ySrc, g_wing[i].sel, r);
+    /* CATZ_WATCH_BLACK: report any blit that paints a substantial area of the
+       window solid background-index. That is what "it turns black" looks
+       like from this side, and catching the blit that does it names the
+       surface and the rectangle it came from. Silent when nothing does it. */
+    if (getenv("CATZ_WATCH_BLACK") && g_wing[i].bpp == 8
+        && wDest >= 24 && hDest >= 24) {
+        uint32_t st = (((uint32_t)g_wing[i].w * 8 + 31) / 32) * 4;
+        const uint8_t *sp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+        long zero = 0, seen = 0;
+        for (int yy = 0; yy < hSrc; yy += 2) {
+            int sy = ySrc + yy;
+            if (sy < 0 || sy >= g_wing[i].h) continue;
+            for (int xx = 0; xx < wSrc; xx += 2) {
+                int sx = xSrc + xx;
+                if (sx < 0 || sx >= g_wing[i].w) continue;
+                seen++;
+                if (sp[(uint32_t)sy * st + sx] == 0) zero++;
+            }
+        }
+        int fullscreen = (xDest <= 0 && yDest <= 0 && wDest >= 256 && hDest >= 200);
+        if (seen > 32 && zero * 10 >= seen * 9 && !fullscreen) {
+            static long n; n++;
+            if (n < 20 || (n % 50) == 0)
+                fprintf(stderr, "[black] blit %ld%s%ld%% empty: surf%d src(%d,%d %dx%d) -> dst(%d,%d %dx%d) n=%ld\n",
+                        n, " painted ", zero * 100 / seen, i, xSrc, ySrc, wSrc, hSrc,
+                        xDest, yDest, wDest, hDest, n);
+        }
+    }
     /* Sprites that reach the edge of the playpen produce rects that hang off
        the surface. Count those separately: the user reports the ball turning
        its whole area black exactly when it bounces off a wall. */
