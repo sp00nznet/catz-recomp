@@ -9,7 +9,7 @@ game saves. What follows is what is left.
 
 ## Next
 
-**1. The four Options entries that open dialogs.** General Options, CatNapz
+**2. The four Options entries that open dialogs.** General Options, CatNapz
 Options, Choose Another Kitten and Create Adoption Kit highlight, log their
 selection, and then unwind without doing anything. This is the only known
 broken feature.
@@ -30,34 +30,24 @@ What has been ruled out, so the same ground is not covered again:
 So the engine decides not to act, upstream of any Win16 call. Next step is the
 engine's command dispatch rather than the shim layer.
 
-**2. Audio beyond the simple path.** `sndPlaySound` now plays every effect the
+**3. Audio beyond the simple path.** `sndPlaySound` now plays every effect the
 engine asks for, which covers nearly all of them. The 37 `SOSLIB03` ordinals
 remain stubbed; they buy stereo and mixing the simple path does not, and are
 only worth doing if the difference is audible.
 
 ## Features the engine has and we do not expose
 
-**3. Desktop mode.** Catz can run loose on the desktop rather than in a window;
+**4. Desktop mode.** Catz can run loose on the desktop rather than in a window;
 the runtime has a `CATZ_DESKTOP` path already. The stubs behind it are
 `GetDesktopWindow`, `SetWindowPos` and `EnumWindows`.
 
-**4. The camera.** The shelf panel has a camera button and the save file has an
+**5. The camera.** The shelf panel has a camera button and the save file has an
 `autoSavePhotos` key, so the photo feature is present and unexercised.
 
-**5. CatNapz.** The screensaver mode, with its own Options entry and an
+**6. CatNapz.** The screensaver mode, with its own Options entry and an
 "Activate CatNapz Now" command.
 
 ## Correctness debt
-
-**6. The playpen still darkens once the mouse is out.** With both the cat and
-the mouse live, black creeps across the window and the odd shelf item is stamped
-off the shelf. Routing the last six GDI entry points at WinG surfaces took it
-from 4.9% -> 13.4% -> 38% of the window over eighteen seconds down to
-1.9% -> 2.1% -> 5.3%, so most of it was SetViewportOrgEx being dropped on a WinG
-DC and each sprite restoring the other's origin as zero. What remains still
-accumulates, so there is another piece of per-sprite state going somewhere
-shared. Reproduce by dropping the cheese next to the mousehole and waiting --
-the mouse takes several minutes to decide to come out.
 
 **7. `sqrt: DOMAIN error`.** The engine's own RTL reports it, a few hundred
 times in some sessions and not at all in others, so something is handing `sqrt`
