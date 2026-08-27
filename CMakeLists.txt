@@ -47,7 +47,7 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/runtime/main.c" AND SEGMENT_SOURCES)
     add_executable(catz runtime/main.c)
     target_compile_definitions(catz PRIVATE
         CATZ_IMAGE_PATH="${CMAKE_SOURCE_DIR}/build_data/mem_image.bin")
-    target_link_libraries(catz catz_segments catz_runtime m user32 gdi32)
+    target_link_libraries(catz catz_segments catz_runtime m user32 gdi32 winmm)
     # Lifted frames are far fatter than the 16-bit originals; the engine's C++
     # construction recurses deep enough to blow the 1 MB default host stack.
     # No ASLR: runtime addresses == file VAs, so backtrace output can be pasted

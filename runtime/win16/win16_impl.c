@@ -815,6 +815,24 @@ void WING_WINGSTRETCHBLT(CPU *cpu);
  *   hDest@14 wDest@16 yDest@18 xDest@20 hdcDest@22
  * Re-frame them as WinGStretchBlt's 20-byte list and reuse that path: bumping sp
  * by 4 first leaves it popping exactly the 24 bytes StretchBlt owes. */
+/* BitBlt is StretchBlt with the source and destination the same size, so give
+ * it the same treatment -- including the surface-to-surface path, since the
+ * engine aims these at WinG DCs too.
+ *
+ * Win16 args: dwRop@0(4) nYSrc@4 nXSrc@6 hdcSrc@8 nHeight@10 nWidth@12
+ *             nYDest@14 nXDest@16 hdcDest@18 */
+void GDI_BITBLT(CPU *cpu) {
+    uint16_t a[10];
+    a[9] = a16(cpu, 18); a[8] = a16(cpu, 16); a[7] = a16(cpu, 14);  /* hdc x y  */
+    a[6] = a16(cpu, 12); a[5] = a16(cpu, 10);                       /* w h dest */
+    a[4] = a16(cpu, 8);  a[3] = a16(cpu, 6);  a[2] = a16(cpu, 4);   /* hdc x y  */
+    a[1] = a16(cpu, 12); a[0] = a16(cpu, 10);                       /* w h src  */
+    cpu->sp += 0;
+    for (int k = 0; k < 10; k++)
+        mem_write16(cpu, cpu->ss, (uint16_t)(cpu->sp + 4 + k * 2), a[k]);
+    WING_WINGSTRETCHBLT(cpu);            /* pops 4 + 20, which is what we owe */
+}
+
 void GDI_STRETCHBLT(CPU *cpu) {
     if (getenv("CATZ_LOG_ROP")) { static int n; if (n++ < 40)
         fprintf(stderr, "[rop] StretchBlt rop=%08lX\n",
@@ -1448,6 +1466,59 @@ static int map_guest_path(const char *g, char *host, int hostsz) {
     }
     for (char *q = host; *q; q++) if (*q == '\\') *q = '/';
     return 1;
+}
+
+/* sndPlaySound(lpszSoundName@2/4, uFlags@0).
+ *
+ * This was a stub returning 0, which is why the game has been silent: the
+ * engine routes nearly every effect through here -- its own log says
+ * "Playing sound via boring windows sounds" each time -- rather than through
+ * the SOS driver it also imports. The files are RIFF/WAV even though most of
+ * them carry a .WVV extension, so they need no conversion.
+ *
+ * Win16 flag values match Win32's, and the engine asks for SND_ASYNC; honour
+ * that, because playing synchronously here would stall the frame loop for the
+ * length of every miaow. */
+void MMSYSTEM_SNDPLAYSOUND(CPU *cpu) {
+    uint16_t flags = a16(cpu, 0);
+    uint16_t off = a16(cpu, 2), seg = a16(cpu, 4);
+    int ok = 0;
+    if (!seg && !off) {
+        PlaySoundA(NULL, NULL, 0);          /* NULL name: stop what is playing */
+        ok = 1;
+    } else {
+        char guest[192] = "", host[256] = "";
+        read_asciiz(cpu, seg, off, guest, sizeof guest);
+        /* Check the file first. Without SND_NODEFAULT a name that does not
+           resolve makes Windows play its own default sound and report success,
+           so a broken path would come back as a system ding rather than as an
+           error worth seeing. */
+        FILE *probe = map_guest_path(guest, host, sizeof host)
+                      ? fopen(host, "rb") : NULL;
+        if (probe) {
+            fclose(probe);
+            { static int said; if (!said++)
+                fprintf(stderr, "[sound] %s -> %s\n", guest, host); }
+            DWORD f = SND_FILENAME;
+            f |= (flags & 0x0001) ? SND_ASYNC : SND_SYNC;
+            if (flags & 0x0002) f |= SND_NODEFAULT;
+            if (flags & 0x0008) f |= SND_LOOP;
+            if (flags & 0x0010) f |= SND_NOSTOP;
+            ok = PlaySoundA(host, NULL, f) ? 1 : 0;
+            if (!ok) {
+                static char told[16][192]; static int ntold; int seen = 0;
+                for (int i = 0; i < ntold; i++)
+                    if (!strcmp(told[i], guest)) { seen = 1; break; }
+                if (!seen) {
+                    if (ntold < 16) snprintf(told[ntold++], 192, "%s", guest);
+                    fprintf(stderr, "[sound] could not play %s (tried %s)\n",
+                            guest, host);
+                }
+            }
+        }
+    }
+    cpu->ax = (uint16_t)ok;
+    ret(cpu, 6);
 }
 
 /* Kept for the trace: a failed open must report the path the guest asked

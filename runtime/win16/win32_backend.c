@@ -568,6 +568,25 @@ void USER_SWAPMOUSEBUTTON(CPU *cpu) {          /* (fSwap@0) -> previous */
     b_ret(cpu, 2);
 }
 
+void USER_SETWINDOWTEXT(CPU *cpu) {            /* (hWnd@4, lpString@0/2) */
+    HWND h = get_hwnd(b_a16(cpu, 4));
+    uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
+    char buf[256] = "";
+    if (seg) b_asciiz(cpu, seg, off, buf, sizeof buf);
+    if (h) SetWindowTextA(h, buf);
+    cpu->ax = 1;
+    b_ret(cpu, 6);
+}
+
+/* CheckMenuItem(hMenu@4, idCheckItem@2, uCheck@0). The engine draws its own
+   menus, so the only real menu here is the window's system menu. */
+void USER_CHECKMENUITEM(CPU *cpu) {
+    HMENU m = GetSystemMenu(g_main_hwnd, FALSE);
+    DWORD prev = m ? CheckMenuItem(m, b_a16(cpu, 2), b_a16(cpu, 0)) : (DWORD)-1;
+    cpu->ax = (uint16_t)prev;
+    b_ret(cpu, 6);
+}
+
 /* ===== cursors, capture and fonts =====
  * LoadCursor and SetCursor were stubs, so whatever the engine set last stuck:
  * it shows the hourglass while it loads and then restores the arrow, and with
