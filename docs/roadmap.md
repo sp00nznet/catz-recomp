@@ -49,31 +49,49 @@ the runtime has a `CATZ_DESKTOP` path already. The stubs behind it are
 
 ## Correctness debt
 
-**7. `sqrt: DOMAIN error`.** The engine's own RTL reports it, a few hundred
+**7. Reported black patches that do not reproduce here.** Areas of the playpen
+going black, reported around the shelf and the window edges, and reliably from
+clicking the cat dancer on the shelf without dragging it off.
+
+One real cause was found and fixed: the frame carried a sizing border while the
+engine renders a fixed 640x480, so any resize left client area the engine never
+draws (a 900x700 window measured 48.7% black). That is gone.
+
+Whether it was the whole story is unconfirmed. Ruled out by measurement since,
+none of which reproduced anything: blit rects outside their surface (none), blits
+GDI rejects (none), surfaces with a dead colour table (none), blits painting a
+substantial area in the background index (none, down to a third of a large
+blit), the cursor coordinate frame (correct), and clicking the cat dancer both
+with scripted input and with a real mouse click (no change either way).
+
+`CATZ_WATCH_BLACK=1` arms the detector; if it happens again the log names the
+surface and both rectangles of the blit responsible.
+
+**8. `sqrt: DOMAIN error`.** The engine's own RTL reports it, a few hundred
 times in some sessions and not at all in others, so something is handing `sqrt`
 a negative. Harmless so far, but it is a real numerical fault and the kind that
 usually turns out to matter.
 
-**8. Z-order.** The pet is composited over the shelf panel's menus — visible in
+**9. Z-order.** The pet is composited over the shelf panel's menus — visible in
 any capture with a menu open. The panel should be above the playpen.
 
-**9. Remaining lifted instructions.** Decoded but still emitted as comments:
+**10. Remaining lifted instructions.** Decoded but still emitted as comments:
 `shrd` (144 sites), `rcl` (111), `sahf` (68), `shld` (66), `rcr` (9). None have
 produced an observed fault yet, which only means nothing has taken those paths.
 
-**10. `catz_unreachable` stubs.** 316 branch targets landed inside another
+**11. `catz_unreachable` stubs.** 316 branch targets landed inside another
 instruction and were given abort stubs rather than bodies. Each one is a decode
 boundary that may or may not be reachable.
 
 ## Structural
 
-**11. `CATZ.EXE` is not used.** The real launcher does a dependency check and
+**12. `CATZ.EXE` is not used.** The real launcher does a dependency check and
 then `WinExec`s `CATZ.WAD`; the recomp starts at the WAD directly. Wiring it up
 would exercise the launcher's own paths.
 
-**12. More than one pet.** The save format has `Cat1`/`Age1` numbering, so the
+**13. More than one pet.** The save format has `Cat1`/`Age1` numbering, so the
 engine expects a family. Only one is ever loaded.
 
-**13. Frame pacing.** `SetTimer` now rounds to the Win16 18.2 Hz tick, which
+**14. Frame pacing.** `SetTimer` now rounds to the Win16 18.2 Hz tick, which
 matches the ~18 fps the engine was written for. Worth measuring against real
 hardware behaviour rather than trusting the arithmetic.
