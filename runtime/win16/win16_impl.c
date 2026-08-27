@@ -1497,8 +1497,27 @@ void KERNEL_OUTPUTDEBUGSTRING(CPU *cpu) {
     {   const char *trap = getenv("CATZ_TRAP");
         if (trap && strstr(s, trap)) {
             extern void dump_guest_stack(CPU *, int);
-            fprintf(stderr, "\n[trap] engine reported a failure\n");
-            dump_guest_stack(cpu, 64);
+            fprintf(stderr, "\n[trap] %s\n", s);
+            /* CATZ_TRAP_RING: the recently executed functions rather than the
+               call stack. Segment 1 is the Borland RTL -- its string formatter
+               runs for every one of these log lines and would bury everything
+               else -- so leave it out and show the engine's own code. */
+            if (getenv("CATZ_TRAP_RING")) {
+                extern const char *g_fn_ring[]; extern unsigned g_fn_ring_pos;
+                int want = atoi(getenv("CATZ_TRAP_RING"));
+                if (want <= 0 || want > 4000) want = 400;
+                fprintf(stderr, "[ring] last %d non-RTL functions:\n", want);
+                for (int k = want; k > 0; k--) {
+                    const char *nm = g_fn_ring[(g_fn_ring_pos - (unsigned)k)
+                                              & (CATZ_FN_RING_SIZE - 1)];
+                    if (nm && strncmp(nm, "seg001_", 7) != 0
+                           && strncmp(nm, "seg048_", 7) != 0)
+                        fprintf(stderr, " %s", nm);
+                }
+                fprintf(stderr, "\n");
+            } else {
+                dump_guest_stack(cpu, 64);
+            }
             fflush(stderr);
         }
     }

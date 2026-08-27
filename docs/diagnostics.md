@@ -41,6 +41,19 @@ background erase was found.
 Together these drive the whole UI headlessly: open the Options menu, pick a
 breed, name a cat, drag a toy off the shelf.
 
+## A caveat about the function ring
+
+`CATZ_TRAP_RING` prints the recently executed functions, and it is tempting to
+diff two runs and read the difference as "this path was taken and that one was
+not". It is not reliable for that. The lifter turns intra-segment jumps into
+tail calls and `-O2` merges them, so a label that really did execute can be
+absent from the ring, having been folded into its sibling. A chain of ten
+functions appeared reproducibly in two runs of a working menu item and never in
+a broken one, which looked like the answer and was not.
+
+Use it to find candidates. Confirm them with a counter or a printed value at the
+branch itself, never with absence from the ring alone.
+
 ## Historical
 
 `tools/bpguard.py` instruments all ~10k call sites and reports any callee that

@@ -27,8 +27,21 @@ What has been ruled out, so the same ground is not covered again:
   unselects is byte-identical between a working item and a broken one, so they
   diverge after that, inside the engine's own command handling.
 
+- *Not a WM_COMMAND that goes unhandled.* Logging every command dispatched to a
+  guest window proc shows the engine sends none for any menu item, working or
+  broken -- it acts on them inline.
+- *The items that fail are exactly the four that end in "..."*, i.e. the four
+  that open a dialog. The five that do not, including Clean Up Toys and Exit,
+  work.
+
+The menu itself is sound: the item rectangles are known from the engine's own
+DrawText calls -- General Options occupies (14,46)-(183,64) in the panel, Clean
+Up Toys (14,112)-(183,130) -- and clicks land inside them, highlight the right
+entry, and log the selection.
+
 So the engine decides not to act, upstream of any Win16 call. Next step is the
-engine's command dispatch rather than the shim layer.
+engine's command dispatch rather than the shim layer -- and note the caveat in
+the diagnostics page before reaching for the function ring to find it.
 
 **3. Audio beyond the simple path.** `sndPlaySound` now plays every effect the
 engine asks for, which covers nearly all of them. The 37 `SOSLIB03` ordinals

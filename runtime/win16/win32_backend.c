@@ -233,6 +233,14 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
                     hWnd == g_screen_hwnd ? "(overlay child)" : "(other)");
     }
     if (msg == WM_ERASEBKGND) return 1;
+    /* CATZ_LOG_CMD: every WM_COMMAND the engine dispatches to itself, with the
+       command id. A menu item that does nothing either sends no command or
+       sends one nothing acts on, and this separates the two. */
+    if (getenv("CATZ_LOG_CMD") && (msg == WM_COMMAND || msg == 0x083B)) {
+        static int n; if (n++ < 400)
+            fprintf(stderr, "[cmd] msg=%04X wParam=%u lParam=%08lX hwnd=%p\n",
+                    msg, (unsigned)wParam, (unsigned long)lParam, (void *)hWnd);
+    }
     uint16_t pseg, poff;
     hwnd_proc(hWnd, &pseg, &poff);
     if (pseg && forward_to_guest(msg)) {
