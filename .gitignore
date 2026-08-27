@@ -36,3 +36,10 @@ build_*/
 # and is not shipped here. Regenerate it from your own copy of the game; see
 # "Building" in README.md.
 src/
+
+# Other Petz-generation games, dropped in to test how universal the toolchain
+# is. Same rule as game/: not ours, not redistributable.
+DOGZ*.zip
+ODDBALLZ.iso
+dogz/
+oddballz/

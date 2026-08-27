@@ -111,6 +111,26 @@ def load_ida_data(ne: NEHeader) -> dict:
             data = json.load(f)
     except (OSError, ValueError):
         data = {}
+
+    # The map is loaded by path, with nothing in it saying which binary it came
+    # from -- so decoding any OTHER NE picked up whatever map happened to be in
+    # analysis/ and walked its instruction heads into a different program. Dogz's
+    # THINK.DLL aborted mid-decode that way. Check the heads actually land inside
+    # this module's segments and ignore the map if they do not.
+    if data:
+        inside = outside = 0
+        for seg in ne.segments:
+            heads = (data.get(str(seg.index)) or {}).get('heads') or []
+            for h in heads:
+                if 0 <= h < len(seg.data):
+                    inside += 1
+                else:
+                    outside += 1
+        if outside > inside // 20:          # a few stragglers are normal
+            print('  IDA map does not match this module (%d/%d heads out of '
+                  'range); decoding without it' % (outside, inside + outside))
+            data = {}
+
     ne._ida_data = data
     return data
 
@@ -289,7 +309,10 @@ def disassemble_segment(seg: Segment, ne: NEHeader, show_relocs: bool = True) ->
         for h in seg_ida['heads']:
             if 0 <= h < len(seg.data):
                 decoder.pos = h
-                inst = decoder.decode_one()
+                try:
+                    inst = decoder.decode_one()
+                except IndexError:
+                    continue        # head sits in the segment tail; skip it
                 if inst is not None:
                     instructions.append(inst)
     else:
