@@ -571,6 +571,15 @@ void USER_SELECTPALETTE(CPU *cpu) {          /* (hdc@4, hpal@2, bForceBkgd@0) */
     uint16_t h = a16(cpu, 2);
     for (int i = 0; i < g_npal; i++)
         if (g_pals[i].h == h) {
+            /* Surfaces snapshot the palette when they are created, so a later
+               palette swap leaves every existing surface holding a stale colour
+               table while the engine draws indices meant for the new one. Say so
+               if the contents actually change. */
+            if (g_have_pal && memcmp(g_active_pal, g_pals[i].rgbq,
+                                     sizeof g_active_pal) != 0) {
+                static int n;
+                fprintf(stderr, "[pal] active palette REPLACED (%04X), change #%d\n", h, ++n);
+            }
             memcpy(g_active_pal, g_pals[i].rgbq, sizeof g_active_pal);
             g_have_pal = 1;
             break;
@@ -876,7 +885,16 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     {   int d = (int)hdcSrc - WING_DC_HANDLE;
         if (d >= 0 && d < WING_DC_MAX) i = wing_index_of(g_wingdc_sel[d]);
     }
-    if (i < 0) i = g_wing_cur;              /* nothing selected: last resort */
+    if (i < 0) {
+        /* Falling back to "whichever surface was selected last anywhere" is a
+           guess, and with more than one sprite live it is usually the wrong
+           one. Count it so the guess is not invisible. */
+        static long nfb; static int told;
+        nfb++;
+        if (getenv("CATZ_LOG_FALLBACK") && told < 12) { told++;
+            fprintf(stderr, "[fallback] blit src hdc=%04X has no surface; using surf%d (%ld so far)\n", hdcSrc, g_wing_cur, nfb); }
+        i = g_wing_cur;
+    }
     if (i < 0) { cpu->ax = 0; ret(cpu, 20); return; }
 
     /* Surface-to-surface. The engine restores the saved backdrop by blitting one

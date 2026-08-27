@@ -64,6 +64,12 @@ static uint16_t put_hdc(HDC h) {
 static void free_hdc(uint16_t g) { if (g && g < MAXH) g_hdc[g] = NULL; }
 static HDC get_hdc(uint16_t g) { return (g && g < MAXH) ? g_hdc[g] : NULL; }
 
+/* Any GDI call can be aimed at a WinG surface as easily as at a real DC. */
+extern int  wing_is_dc(uint16_t);
+extern HDC  wing_state_dc(CPU *, uint16_t);
+extern HDC  wing_draw_begin(CPU *, uint16_t, const RECT *);
+extern void wing_draw_end(CPU *, uint16_t, const RECT *);
+
 /* GDI objects (bitmaps so far) get their own guest handle space. */
 #define MAXGDI 256
 static HGDIOBJ g_gdi[MAXGDI];
@@ -481,7 +487,8 @@ void GDI_DELETEOBJECT(CPU *cpu) {              /* (hgdiobj@0) */
 }
 
 void GDI_CREATECOMPATIBLEDC(CPU *cpu) {        /* (hdc@0) */
-    HDC dc = get_hdc(b_a16(cpu, 0));
+    uint16_t g0 = b_a16(cpu, 0);
+    HDC dc = wing_is_dc(g0) ? wing_state_dc(cpu, g0) : get_hdc(g0);
     HDC mem = CreateCompatibleDC(dc);
     cpu->ax = mem ? put_hdc(mem) : 0;
     b_ret(cpu, 2);
@@ -497,17 +504,14 @@ void GDI_DELETEDC(CPU *cpu) {                  /* (hdc@0) */
 }
 
 void GDI_CREATECOMPATIBLEBITMAP(CPU *cpu) {    /* (hdc@4, w@2, h@0) */
-    HDC dc = get_hdc(b_a16(cpu, 4));
+    uint16_t g0 = b_a16(cpu, 4);
+    HDC dc = wing_is_dc(g0) ? wing_state_dc(cpu, g0) : get_hdc(g0);
     int w = (int16_t)b_a16(cpu, 2), h = (int16_t)b_a16(cpu, 0);
     HBITMAP bm = dc ? CreateCompatibleBitmap(dc, w, h) : NULL;
     cpu->ax = bm ? put_hgdi(bm) : 0;
     b_ret(cpu, 6);
 }
 
-extern HDC  wing_draw_begin(CPU *, uint16_t, const RECT *);
-extern void wing_draw_end(CPU *, uint16_t, const RECT *);
-extern int  wing_is_dc(uint16_t);
-extern HDC  wing_state_dc(CPU *, uint16_t);
 
 /* GetTextExtent(hdc@6, lpString@2/4, nCount@0) -> width in AX, height in DX.
  * Stubbed to 0, so every string the engine measured came back zero wide -- and
@@ -774,16 +778,20 @@ void GDI_POLYGON(CPU *cpu) {
 
 /* FrameRect(hdc@6, lprc@2/4, hbr@0) */
 void USER_FRAMERECT(CPU *cpu) {
-    HDC dc      = get_hdc(b_a16(cpu, 6));
+    uint16_t g  = b_a16(cpu, 6);
     uint16_t ro = b_a16(cpu, 2), rs = b_a16(cpu, 4);
     HBRUSH br   = (HBRUSH)get_hgdi(b_a16(cpu, 0));
-    if (dc && rs) {
+    cpu->ax = 0;
+    if (rs) {
         RECT r = { (int16_t)mem_read16(cpu, rs, ro),
                    (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 2)),
                    (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 4)),
                    (int16_t)mem_read16(cpu, rs, (uint16_t)(ro + 6)) };
-        cpu->ax = (uint16_t)FrameRect(dc, &r, br);
-    } else cpu->ax = 0;
+        RECT used = r; int wing = 0;
+        HDC dc = draw_dc(cpu, g, r, &used, &wing);
+        if (dc) cpu->ax = (uint16_t)FrameRect(dc, &r, br);
+        if (dc && wing) wing_draw_end(cpu, g, &used);
+    }
     b_ret(cpu, 8);
 }
 
@@ -813,25 +821,31 @@ void GDI_SETBKMODE(CPU *cpu) {                 /* (hdc@2, mode@0) */
 }
 
 void GDI_PATBLT(CPU *cpu) {                    /* (hdc@12,x@10,y@8,w@6,h@4,rop@0) */
-    HDC dc = get_hdc(b_a16(cpu, 12));
+    uint16_t g = b_a16(cpu, 12);
     int x = (int16_t)b_a16(cpu, 10), y = (int16_t)b_a16(cpu, 8);
     int w = (int16_t)b_a16(cpu, 6), h = (int16_t)b_a16(cpu, 4);
     DWORD rop = b_a32(cpu, 0);
+    RECT r = { x, y, x + w, y + h }, used = r; int wing = 0;
+    HDC dc = draw_dc(cpu, g, r, &used, &wing);
     cpu->ax = (uint16_t)(dc ? PatBlt(dc, x, y, w, h, rop) : 0);
+    if (dc && wing) wing_draw_end(cpu, g, &used);
     b_ret(cpu, 14);
 }
 
 void USER_FILLRECT(CPU *cpu) {                 /* (hdc@6, lpRect@2/4, hbr@0) */
-    HDC dc = get_hdc(b_a16(cpu, 6));
+    uint16_t g = b_a16(cpu, 6);
     uint16_t roff = b_a16(cpu, 2), rseg = b_a16(cpu, 4);
     HBRUSH br = (HBRUSH)get_hgdi(b_a16(cpu, 0));
-    if (dc && rseg && br) {
+    if (rseg && br) {
         RECT r;
         r.left   = (int16_t)mem_read16(cpu, rseg, roff);
         r.top    = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 2));
         r.right  = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 4));
         r.bottom = (int16_t)mem_read16(cpu, rseg, (uint16_t)(roff + 6));
-        FillRect(dc, &r, br);
+        RECT used = r; int wing = 0;
+        HDC dc = draw_dc(cpu, g, r, &used, &wing);
+        if (dc) FillRect(dc, &r, br);
+        if (dc && wing) wing_draw_end(cpu, g, &used);
     }
     cpu->ax = 1;
     b_ret(cpu, 8);
@@ -928,7 +942,14 @@ void USER_GETCURSORPOS(CPU *cpu) {         /* (lpPoint@0/2) */
 }
 
 void GDI_SETVIEWPORTORGEX(CPU *cpu) {      /* (hdc@8, X@6, Y@4, lpPoint@0/2) */
-    HDC dc = get_hdc(b_a16(cpu, 8));
+    /* The engine sets the origin on its WinG draw ports and keeps the value it
+       gets back so it can restore it. A WinG DC is not in the host handle table,
+       so this used to resolve to NULL: the set was dropped and the caller was
+       handed (0,0) as the previous origin. With one sprite live that was
+       survivable; with the mouse out as well, each sprite restored the other's
+       origin as zero and their patches went to the wrong place. */
+    uint16_t g0 = b_a16(cpu, 8);
+    HDC dc = wing_is_dc(g0) ? wing_state_dc(cpu, g0) : get_hdc(g0);
     int x = (int16_t)b_a16(cpu, 6), y = (int16_t)b_a16(cpu, 4);
     uint16_t off = b_a16(cpu, 0), seg = b_a16(cpu, 2);
     POINT old = { 0, 0 };
