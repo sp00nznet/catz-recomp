@@ -371,10 +371,19 @@ void USER_CREATEWINDOW(CPU *cpu) {
     if (hw && !g_main_hwnd) {
         g_main_hwnd = hw;
         if (!getenv("CATZ_DESKTOP")) {      /* client area == the engine's screen */
+            /* The engine renders a fixed 640x480 playpen and reports exactly that
+               through GetClientRect, so a resizable frame is a lie: drag the edge
+               out and the extra client area is something the engine will never
+               draw, which is simply black, and it looks for all the world like
+               half the playpen has gone dark. Take the sizing grip and the
+               maximise box away so the client cannot leave 640x480. */
+            LONG st = GetWindowLongA(hw, GWL_STYLE);
+            st &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+            SetWindowLongA(hw, GWL_STYLE, st);
             RECT rc = { 0, 0, CATZ_SCREEN_W, CATZ_SCREEN_H };
-            AdjustWindowRect(&rc, (DWORD)style, FALSE);
+            AdjustWindowRect(&rc, (DWORD)st, FALSE);
             SetWindowPos(hw, NULL, 0, 0, rc.right - rc.left, rc.bottom - rc.top,
-                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
         }
     }
     if (hw && !g_screen_hwnd

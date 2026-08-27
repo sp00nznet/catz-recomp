@@ -729,6 +729,7 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
 static uint8_t g_present[PRESENT_H][PRESENT_W];
 static uint8_t g_present_pal[256 * 4];
 static int     g_present_live;
+static int     g_present_w, g_present_h;   /* how much has ever been drawn */
 
 void catz_present_paint(void *hdc) {
     if (!g_present_live) return;
@@ -740,10 +741,37 @@ void catz_present_paint(void *hdc) {
     h->biPlanes = 1; h->biBitCount = 8; h->biCompression = BI_RGB;
     h->biClrUsed = 256;
     memcpy(bi + sizeof(BITMAPINFOHEADER), g_present_pal, 256 * 4);
+    int pw = g_present_w, ph = g_present_h;
+    if (pw <= 0 || ph <= 0) return;
     SetStretchBltMode((HDC)hdc, COLORONCOLOR);
-    StretchDIBits((HDC)hdc, 0, 0, PRESENT_W, PRESENT_H,
-                  0, 0, PRESENT_W, PRESENT_H,
+    /* Source y is measured from the bottom for a bottom-up DIB; ours is stored
+       top-down (negative height), so the rows line up directly. */
+    StretchDIBits((HDC)hdc, 0, 0, pw, ph, 0, 0, pw, ph,
                   g_present, (const BITMAPINFO *)bi, DIB_RGB_COLORS, SRCCOPY);
+    /* Belt and braces: if the client is somehow larger than anything the engine
+       has drawn, fill the remainder with the backdrop's own colour rather than
+       leaving raw black there. */
+    HWND ow = WindowFromDC((HDC)hdc);
+    RECT cr;
+    if (ow && GetClientRect(ow, &cr)
+        && (cr.right > pw || cr.bottom > ph)) {
+        uint8_t idx = g_present[ph - 1][pw - 1];
+        HBRUSH b = CreateSolidBrush(RGB(g_present_pal[idx * 4 + 2],
+                                        g_present_pal[idx * 4 + 1],
+                                        g_present_pal[idx * 4 + 0]));
+        if (b) {
+            RECT r;
+            if (cr.right > pw) {
+                r.left = pw; r.top = 0; r.right = cr.right; r.bottom = cr.bottom;
+                FillRect((HDC)hdc, &r, b);
+            }
+            if (cr.bottom > ph) {
+                r.left = 0; r.top = ph; r.right = cr.right; r.bottom = cr.bottom;
+                FillRect((HDC)hdc, &r, b);
+            }
+            DeleteObject(b);
+        }
+    }
 }
 
 /* CATZ_DUMP_WIN=<n>: replay every blit into a private canvas and write it out
@@ -1112,6 +1140,10 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
                     g_present[oy][ox] = psp[(uint32_t)sy * pst + (uint32_t)sx];
                 }
             }
+            if (xDest + wDest > g_present_w) g_present_w = xDest + wDest;
+            if (yDest + hDest > g_present_h) g_present_h = yDest + hDest;
+            if (g_present_w > PRESENT_W) g_present_w = PRESENT_W;
+            if (g_present_h > PRESENT_H) g_present_h = PRESENT_H;
             g_present_live = 1;
         }
     }
