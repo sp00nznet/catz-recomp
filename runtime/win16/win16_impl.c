@@ -1292,6 +1292,23 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
        window solid background-index. That is what "it turns black" looks
        like from this side, and catching the blit that does it names the
        surface and the rectangle it came from. Silent when nothing does it. */
+    /* The other way a blit comes out black is with correct pixels and a dead
+       colour table: the engine leaves the table in its BITMAPINFO blank and
+       supplies colours through CreatePalette, so a surface created before it
+       realizes one keeps an all-zero table and everything drawn from it is
+       black however good the indices are. Checked always, not just under the
+       watch, because it is cheap and there is no benign case. */
+    if (g_wing[i].bpp == 8) {
+        static int told[16];
+        int live = 0;
+        for (int c = 1; c < 256 && !live; c++)
+            if (g_wing[i].pal[c * 4] | g_wing[i].pal[c * 4 + 1]
+                                    | g_wing[i].pal[c * 4 + 2]) live = 1;
+        if (!live && i < 16 && !told[i]) {
+            told[i] = 1;
+            fprintf(stderr, "[palette] surf%d has an all-black colour table; everything blitted from it will be black\n", i);
+        }
+    }
     if (getenv("CATZ_WATCH_BLACK") && g_wing[i].bpp == 8
         && wDest >= 24 && hDest >= 24) {
         uint32_t st = (((uint32_t)g_wing[i].w * 8 + 31) / 32) * 4;
@@ -1308,7 +1325,11 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             }
         }
         int fullscreen = (xDest <= 0 && yDest <= 0 && wDest >= 256 && hDest >= 200);
-        if (seen > 32 && zero * 10 >= seen * 9 && !fullscreen) {
+        /* A big blit that is even a third empty is worth hearing about: the
+           reports are of an area going black, not the whole window. */
+        int big = (wDest >= 100 && hDest >= 100);
+        int bar = big ? 3 : 9;          /* tenths of the sampled area */
+        if (seen > 32 && zero * 10 >= seen * bar && !fullscreen) {
             static long n; n++;
             if (n < 20 || (n % 50) == 0)
                 fprintf(stderr, "[black] blit %ld%s%ld%% empty: surf%d src(%d,%d %dx%d) -> dst(%d,%d %dx%d) n=%ld\n",

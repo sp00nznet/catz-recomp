@@ -960,7 +960,25 @@ void USER_GETCURSORPOS(CPU *cpu) {         /* (lpPoint@0/2) */
     } else {
         GetCursorPos(&p);
         HWND h = g_screen_hwnd ? g_screen_hwnd : g_main_hwnd;
+        POINT raw = p;
         if (h) ScreenToClient(h, &p);
+        /* The coordinate frame the engine hit-tests in. If this does not match
+           where the playpen is actually drawn, every click lands somewhere
+           other than where the pointer is. */
+        if (getenv("CATZ_LOG_CURSOR")) {
+            static int n; static POINT last;
+            if (n < 6 || raw.x != last.x || raw.y != last.y) {
+                RECT wr = {0}, cr = {0}; POINT org = {0,0};
+                if (h) { GetWindowRect(h, &wr); GetClientRect(h, &cr);
+                         ClientToScreen(h, &org); }
+                if (n < 30) fprintf(stderr,
+                    "[cursor] screen(%ld,%ld) -> client(%ld,%ld) | win(%ld,%ld)-(%ld,%ld)"
+                    " client=%ldx%ld origin(%ld,%ld)\n",
+                    raw.x, raw.y, p.x, p.y, wr.left, wr.top, wr.right, wr.bottom,
+                    cr.right, cr.bottom, org.x, org.y);
+                n++; last = raw;
+            }
+        }
     }
     if (seg) {
         mem_write16(cpu, seg, off, (uint16_t)(int16_t)p.x);
