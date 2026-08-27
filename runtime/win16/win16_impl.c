@@ -230,6 +230,20 @@ void KERNEL_FINDRESOURCE(CPU *cpu) {        /* FindResource(hInst,lpName,lpType)
     uint16_t hrsrc = ne_find_resource(hinst, tint, tstr, nint, nstr);
     IMPL_LOG("[win16] FindResource(hInst=%04X type=%d/%s name=%d/%s) -> %04X\n",
              hinst, tint, tstr, nint, nstr, hrsrc);
+    /* A resource the engine cannot find is never harmless -- it surfaces as a
+       missing dialog or a blank bitmap much later. Report each miss once. */
+    if (!hrsrc) {
+        static struct { uint16_t h; int t, n; } told[32]; static int ntold;
+        int seen = 0;
+        for (int i = 0; i < ntold; i++)
+            if (told[i].h == hinst && told[i].t == tint && told[i].n == nint) { seen = 1; break; }
+        if (!seen) {
+            if (ntold < 32) { told[ntold].h = hinst; told[ntold].t = tint;
+                              told[ntold].n = nint; ntold++; }
+            fprintf(stderr, "[res] FindResource MISS hInst=%04X type=%d/%s name=%d/%s\n",
+                    hinst, tint, tstr, nint, nstr);
+        }
+    }
     cpu->ax = hrsrc;
     ret(cpu, 10);
 }

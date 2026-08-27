@@ -36,18 +36,18 @@ Working:
 - **The shelf panel is real** — caption bar, system menu, and the Options and
   Help menus, all drawn and hit-tested by the engine.
 - **Saving works**, so the game keeps its settings and your cat between runs.
+- **Sound works** — the engine's own effects, played from the game's `SOUNDS/`
+  tree.
 
 Not working yet:
 
 - The four Options entries that open dialogs (General Options, CatNapz Options,
-  Choose Another Kitten, Create Adoption Kit) highlight but never reach a dialog
-  call. Everything else on the menu works.
-- No audio. The engine asks for it (`SNDPLAYSOUND`, the SOS ordinals) and the
-  calls are stubs.
-- The engine logs `sqrt: DOMAIN error` a few hundred times a session; harmless
-  so far, but it means something is handing `sqrt` a negative.
+  Choose Another Kitten, Create Adoption Kit) highlight but never act.
+  Everything else on the menu works.
+- The engine logs `sqrt: DOMAIN error` in some sessions; harmless so far, but it
+  means something is handing `sqrt` a negative.
 
-Twelve Win16 imports the engine actually reaches are still stubs; run with
+Nine Win16 imports the engine actually reaches are still stubs; run with
 `CATZ_STUB_HITS=1` for the current list. See the [roadmap](docs/roadmap.md) for
 what is planned and what the evidence for each item is.
 
