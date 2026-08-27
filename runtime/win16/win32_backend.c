@@ -115,6 +115,9 @@ static uint16_t g_wndproc_seg = 0, g_wndproc_off = 0;
 
 /* The first window created is the application frame; only it ends the app. */
 static HWND g_main_hwnd;
+static HWND g_screen_hwnd;
+HWND g_main_hwnd_of(void)   { return g_main_hwnd; }
+HWND g_screen_hwnd_of(void) { return g_screen_hwnd; }
 /* The engine makes two windows: a framed playpen and a 640x480 WS_POPUP that
    is its pet overlay -- the thing it would normally paint straight onto the
    desktop. GetDC(NULL) asks for that overlay, so it has to go to the popup;
@@ -122,7 +125,7 @@ static HWND g_main_hwnd;
    the whole pen. */
 #define CATZ_SCREEN_W 640
 #define CATZ_SCREEN_H 480
-static HWND g_screen_hwnd;
+
 
 static GuestClass *cls_find(const char *name) {
     for (int i = 0; i < g_ncls; i++)
@@ -212,6 +215,23 @@ static LRESULT CALLBACK host_wndproc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM 
      * flashes another colour under it -- and where the guest repaints a smaller
      * area than was invalidated, that colour is what stays on screen. Claim the
      * erase as done. */
+    /* Repaint an exposed frame from the copy of what it was last shown. The
+       engine repaints only what changed and assumes the window keeps the rest,
+       which Windows does not promise -- so without this an exposed region stays
+       as undefined pixels until something happens to move across it, and over
+       the static parts of the playpen that is never. */
+    if (msg == WM_ERASEBKGND && (hWnd == g_main_hwnd || hWnd == g_screen_hwnd)) {
+        extern void catz_present_paint(void *);
+        catz_present_paint((void *)wParam);
+        return 1;
+    }
+    if (getenv("CATZ_LOG_PAINT") && (msg == WM_PAINT || msg == WM_ERASEBKGND)) {
+        static int n; if (n++ < 30)
+            fprintf(stderr, "[paint] %s hwnd=%p %s\n",
+                    msg == WM_PAINT ? "WM_PAINT " : "WM_ERASE ", (void *)hWnd,
+                    hWnd == g_main_hwnd ? "(main)" :
+                    hWnd == g_screen_hwnd ? "(overlay child)" : "(other)");
+    }
     if (msg == WM_ERASEBKGND) return 1;
     uint16_t pseg, poff;
     hwnd_proc(hWnd, &pseg, &poff);

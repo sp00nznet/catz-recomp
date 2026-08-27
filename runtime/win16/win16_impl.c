@@ -715,6 +715,37 @@ void WING_WINGCREATEBITMAP(CPU *cpu) {      /* WinGCreateBitmap(HDC,BITMAPINFO*,
  * guest memory straight onto the real destination DC. This is the engine's
  * only path to the screen — it was a no-op returning TRUE, which is why the
  * window stayed blank even when the engine was drawing. */
+/* What the window has been shown.
+ *
+ * A Win16 app repaints only what changed and assumes the window keeps the rest;
+ * Windows makes no such promise. Anything that exposes the frame -- another
+ * window passing over it, an activation, a restore -- leaves those pixels
+ * undefined, and the engine will not redraw them because as far as it is
+ * concerned they are already correct. Over the static parts of the playpen that
+ * is never, so the exposed area simply stays black until something happens to
+ * move across it. Keep every blit here as well, and paint it back on demand. */
+#define PRESENT_W 1024
+#define PRESENT_H 768
+static uint8_t g_present[PRESENT_H][PRESENT_W];
+static uint8_t g_present_pal[256 * 4];
+static int     g_present_live;
+
+void catz_present_paint(void *hdc) {
+    if (!g_present_live) return;
+    unsigned char bi[sizeof(BITMAPINFOHEADER) + 256 * 4];
+    memset(bi, 0, sizeof bi);
+    BITMAPINFOHEADER *h = (BITMAPINFOHEADER *)bi;
+    h->biSize = sizeof(BITMAPINFOHEADER);
+    h->biWidth = PRESENT_W; h->biHeight = -PRESENT_H;
+    h->biPlanes = 1; h->biBitCount = 8; h->biCompression = BI_RGB;
+    h->biClrUsed = 256;
+    memcpy(bi + sizeof(BITMAPINFOHEADER), g_present_pal, 256 * 4);
+    SetStretchBltMode((HDC)hdc, COLORONCOLOR);
+    StretchDIBits((HDC)hdc, 0, 0, PRESENT_W, PRESENT_H,
+                  0, 0, PRESENT_W, PRESENT_H,
+                  g_present, (const BITMAPINFO *)bi, DIB_RGB_COLORS, SRCCOPY);
+}
+
 /* CATZ_DUMP_WIN=<n>: replay every blit into a private canvas and write it out
    after n blits -- exactly what reaches the window, without screen capture. */
 static uint8_t g_canvas[768][1024];
@@ -912,6 +943,18 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             /* Scrolling a surface onto itself overlaps, so walk each axis away
              * from the destination the way memmove would; copying forward
              * through an overlap combs the image into vertical stripes. */
+            if (getenv("CATZ_LOG_EDGE")) {
+                int so = (xSrc < 0 || ySrc < 0 ||
+                          xSrc + wSrc > g_wing[i].w || ySrc + hSrc > g_wing[i].h);
+                int do_ = (xDest < 0 || yDest < 0 ||
+                           xDest + wDest > g_wing[j].w || yDest + hDest > g_wing[j].h);
+                if (so || do_) { static long n; n++;
+                    if (n < 12 || (n % 200) == 0)
+                        fprintf(stderr, "[edge-s2s] %s surf%d(%d,%d %dx%d)[%dx%d] -> surf%d(%d,%d %dx%d)[%dx%d] n=%ld\n",
+                            so && do_ ? "both" : so ? "src" : "dst",
+                            i, xSrc, ySrc, wSrc, hSrc, g_wing[i].w, g_wing[i].h,
+                            j, xDest, yDest, wDest, hDest, g_wing[j].w, g_wing[j].h, n); }
+            }
             int ydn = !(i == j && yDest > ySrc), xdn = !(i == j && xDest > xSrc);
             for (int k = 0; k < hDest && hSrc > 0; k++) {
                 int dy = ydn ? k : hDest - 1 - k;
@@ -1051,6 +1094,27 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
             fprintf(stderr, "\n");
         }
     }
+    {   /* Keep the frame's own copy up to date on every blit. */
+        uint32_t pst = (((uint32_t)g_wing[i].w * g_wing[i].bpp + 31) / 32) * 4;
+        const uint8_t *psp = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
+        if (g_wing[i].bpp == 8) {
+            memcpy(g_present_pal, g_wing[i].pal, sizeof g_present_pal);
+            for (int dy = 0; dy < hDest && hSrc > 0; dy++) {
+                int oy = yDest + dy;
+                if (oy < 0 || oy >= PRESENT_H) continue;
+                int sy = ySrc + (int)((long)dy * hSrc / hDest);
+                if (sy < 0 || sy >= g_wing[i].h) continue;
+                for (int dx = 0; dx < wDest && wSrc > 0; dx++) {
+                    int ox = xDest + dx;
+                    if (ox < 0 || ox >= PRESENT_W) continue;
+                    int sx = xSrc + (int)((long)dx * wSrc / wDest);
+                    if (sx < 0 || sx >= g_wing[i].w) continue;
+                    g_present[oy][ox] = psp[(uint32_t)sy * pst + (uint32_t)sx];
+                }
+            }
+            g_present_live = 1;
+        }
+    }
     {   const char *cw = getenv("CATZ_DUMP_WIN");
         if (cw) {
             static int nblt;
@@ -1171,11 +1235,49 @@ void WING_WINGSTRETCHBLT(CPU *cpu) {
     }
     const void *bits = cpu->mem + seg_off(cpu, g_wing[i].sel, 0);
     SetStretchBltMode(dst, COLORONCOLOR);
+    /* A blit that reaches here has a valid DC and correct pixels, so if the
+       window still does not show it the loss is on this side. Report the DC
+       it went to and whether GDI accepted it. */
+    if (getenv("CATZ_LOG_DEST")) {
+        extern HWND g_main_hwnd_of(void);
+        extern HWND g_screen_hwnd_of(void);
+        static int n; static HWND lastw; static uint16_t lastg;
+        HWND ow = WindowFromDC(dst);
+        if (n < 8 || ow != lastw || hdcDest != lastg) {
+            if (n < 40) fprintf(stderr,
+                "[dest] blit %d ghdc=%u dc=%p window=%p (main=%p screen=%p)\n",
+                n, hdcDest, (void *)dst, (void *)ow,
+                (void *)g_main_hwnd_of(), (void *)g_screen_hwnd_of());
+            n++; lastw = ow; lastg = hdcDest;
+        }
+    }
     int r = StretchDIBits(dst, xDest, yDest, wDest, hDest,
                           xSrc, ySrc, wSrc, hSrc,
                           bits, (const BITMAPINFO *)bi, DIB_RGB_COLORS, SRCCOPY);
     IMPL_LOG("[wing] StretchBlt %dx%d@%d,%d <- %dx%d@%d,%d src=%04X -> %d\n",
              wDest, hDest, xDest, yDest, wSrc, hSrc, xSrc, ySrc, g_wing[i].sel, r);
+    /* Sprites that reach the edge of the playpen produce rects that hang off
+       the surface. Count those separately: the user reports the ball turning
+       its whole area black exactly when it bounces off a wall. */
+    if (getenv("CATZ_LOG_EDGE")) {
+        int sx2 = xSrc + wSrc, sy2 = ySrc + hSrc;
+        if (xSrc < 0 || ySrc < 0 || sx2 > g_wing[i].w || sy2 > g_wing[i].h) {
+            static long n; n++;
+            if (n < 12 || (n % 100) == 0)
+                fprintf(stderr, "[edge] src(%d,%d %dx%d) outside surf%d (%dx%d), n=%ld\n",
+                        xSrc, ySrc, wSrc, hSrc, i, g_wing[i].w, g_wing[i].h, n);
+        }
+    }
+    /* A blit that gets this far has a valid DC and correct pixels, so a
+       rejection here is content the window silently never receives. */
+    if (r == 0 || r == GDI_ERROR) {
+        static long nbad, ntot;
+        nbad++;
+        if (nbad == 1 || (nbad % 200) == 0)
+            fprintf(stderr, "[blitfail] StretchDIBits rejected %ld blits (last %dx%d at %d,%d, r=%d)\n",
+                    nbad, wDest, hDest, xDest, yDest, r);
+        (void)ntot;
+    }
     cpu->ax = (uint16_t)(r != GDI_ERROR);
     ret(cpu, 20);
 }
