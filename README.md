@@ -48,7 +48,8 @@ Not working yet:
   so far, but it means something is handing `sqrt` a negative.
 
 Twelve Win16 imports the engine actually reaches are still stubs; run with
-`CATZ_STUB_HITS=1` for the current list.
+`CATZ_STUB_HITS=1` for the current list. See the [roadmap](docs/roadmap.md) for
+what is planned and what the evidence for each item is.
 
 ## Building
 
@@ -135,6 +136,7 @@ a copy you already own for any of it to run.
 
 | Page | What is in it |
 |------|---------------|
+| [Roadmap](docs/roadmap.md) | What is left, ordered by what a player would notice |
 | [Architecture](docs/architecture.md) | Module layout, the lift pipeline and its results, where the render actually lives, build notes that are easy to lose |
 | [The Win16 layer](docs/win16-layer.md) | How the shims work, and the recurring shapes of bug — a stub returning 0 is not neutral, the PASCAL purge has to be exact, a WinG DC is not a host DC |
 | [Diagnostics](docs/diagnostics.md) | Every in-tree instrument, including how to drive the whole UI headlessly without touching the mouse |
