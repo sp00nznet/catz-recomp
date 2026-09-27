@@ -51,7 +51,7 @@ only worth doing if the difference is audible.
 ## Features the engine has and we do not expose
 
 **4. Desktop mode.** Catz can run loose on the desktop rather than in a window;
-the runtime has a `CATZ_DESKTOP` path already. The stubs behind it are
+the runtime has a `RECOMP_DESKTOP` path already. The stubs behind it are
 `GetDesktopWindow`, `SetWindowPos` and `EnumWindows`.
 
 **5. The camera.** The shelf panel has a camera button and the save file has an
@@ -77,7 +77,7 @@ substantial area in the background index (none, down to a third of a large
 blit), the cursor coordinate frame (correct), and clicking the cat dancer both
 with scripted input and with a real mouse click (no change either way).
 
-`CATZ_WATCH_BLACK=1` arms the detector; if it happens again the log names the
+`RECOMP_WATCH_BLACK=1` arms the detector; if it happens again the log names the
 surface and both rectangles of the blit responsible.
 
 **8. `sqrt: DOMAIN error`.** The engine's own RTL reports it, a few hundred

@@ -89,7 +89,8 @@ real resource/config shims + a WndProc bridge + render path are needed.
 
 How the modules are combined:
 - CATZ.WAD segments are renumbered 60–66 (CATZDLL keeps 1–59); both share one
-  flat image (`gen_image_combined.py`).
+  flat image (pcrecomp `tools/ne/ne_link.py`, which renumbers any number of
+  modules this way).
 - CATZ.WAD's CATZDLL imports are resolved by ordinal → CATZDLL export entry →
   lifted function (direct C call), so cross-module calls need no thunks.
 - KERNEL/USER/GDI/CTL3DV2/COMMDLG imports → the shared Win16 shims (IDA-named).

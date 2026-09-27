@@ -33,9 +33,14 @@ build_*/
 
 # Lifted output. This is a machine translation of the retail game's own code --
 # a derivative work of CATZDLL.DLL and CATZ.WAD -- so it is not redistributable
-# and is not shipped here. Regenerate it from your own copy of the game; see
-# "Building" in README.md.
+# and is not shipped here. Regenerate it from your own copy of the game with
+# tools/relift.py; see "Building" in README.md. work/ also holds the IDA code
+# maps, the flat memory image and the generated headers, all derived from the
+# same binaries.
 src/
+work/
+analysis/*
+!analysis/win16_imports.json
 
 # Other Petz-generation games, dropped in to test how universal the toolchain
 # is. Same rule as game/: not ours, not redistributable.

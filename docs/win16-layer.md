@@ -5,8 +5,8 @@ Everything the engine does to the outside world goes through
 ordinal with the correct PASCAL stack purge; anything hand-written in
 `win16_impl.c` or `win32_backend.c` replaces its stub automatically.
 
-Run with `CATZ_STUB_HITS=1` to list the unimplemented APIs a session actually
-reached. That list is the work queue, and it is short now:
+Each unimplemented API a session reaches prints `[win16] unimplemented: ...`
+once. That list is the work queue, and it is short now:
 
 ```
 __FPMATH  ENUMWINDOWS  SETWINDOWTEXT  CHECKMENUITEM  SENDMESSAGE

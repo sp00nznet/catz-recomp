@@ -95,6 +95,6 @@ the WinG surface -- live in that DLGPROC.
 - `CATZ_DATA_DIR` must point at a real game install (`../catzng/catz`, the tree
   containing `PTZFILES`).
 - Compiler is MSYS2 mingw64 gcc — `PATH` must include `C:/msys64/mingw64/bin`.
-- After any re-lift: `lift_dll.py`, `lift_wad.py`, **`patch_lifted.py`**, then
-  `gen_segments_h.py`, `gen_dispatch.py`, `gen_stubs.py`. Skipping
-  `patch_lifted.py` silently drops the EH cleanup-chain guards.
+- Re-lift with `tools/relift.py`, which runs pcrecomp's `ne_link.py` (lift,
+  image, glue) and `patch_borland_eh.py` (the EH cleanup-chain guards) in one
+  go, so the guards cannot be skipped by accident.

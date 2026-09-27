@@ -57,8 +57,8 @@ than another pointer chase. The sibling `catzng` project already parses the same
 LNZ/BDT files and knows the expected ball geometry -- checking the engine's ball
 positions against it would give ground truth instead of inference. Also worth
 trying first: these measurements are all from the Adoption Kit
-(`CATZ_DLG_RESULT=2001`); the real playpen may not be broken the same way.
+(`RECOMP_DLG_RESULT=2001`); the real playpen may not be broken the same way.
 
-`CATZ_DUMP_BLIT=snapN` (with `CATZ_DUMP_DIR`) dumps every live WinG surface at
+`RECOMP_DUMP_BLIT=snapN` (with `RECOMP_DUMP_DIR`) dumps every live WinG surface at
 one instant with a distinct-value count. The count is the useful part: a uniform
 fill and real artwork both report "all bytes nonzero".

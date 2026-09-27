@@ -48,32 +48,32 @@ Not working yet:
   means something is handing `sqrt` a negative.
 
 Nine Win16 imports the engine actually reaches are still stubs; run with
-`CATZ_STUB_HITS=1` for the current list. See the [roadmap](docs/roadmap.md) for
+the runtime prints each one (`[win16] unimplemented: ...`) the first time it is reached. See the [roadmap](docs/roadmap.md) for
 what is planned and what the evidence for each item is.
 
 ## Building
 
 The lifted C is **not** in this repository. It is a machine translation of the
 retail game's own code, so it is not redistributable — you generate it from your
-own copy, the same way you supply the game data. With `CATZ_DATA_DIR` pointing
-at your install:
+own copy, the same way you supply the game data.
+
+The toolchain and the Win16 runtime live in
+[pcrecomp](https://github.com/sp00nznet/pcrecomp) (`tools/ne/`,
+`runtime/win16/`); this repository holds only what is Catz's own. Check pcrecomp
+out next to this repository as `tools/`, or point `PCRECOMP_DIR` at it. Then,
+with the game binaries in `game/`:
 
 ```bash
-python tools/lift_dll.py            # CATZDLL.DLL  -> src/seg001..059.c
-python tools/lift_wad.py            # CATZ.WAD     -> src/seg060..066.c
-python tools/patch_lifted.py        # EH cleanup-chain guards (do not skip)
-python tools/gen_segments_h.py      # cross-segment prototypes
-python tools/gen_dispatch.py        # indirect call/jmp dispatcher
-python tools/gen_stubs.py           # stubs for unresolved targets
-python tools/gen_win16_stubs.py     # Win16 stubs with PASCAL purge
-python tools/gen_image_combined.py  # flat memory image
-
-cmake -B build -A Win32             # 16-bit origin -> 32-bit native target
+python tools/relift.py --ida        # IDA code maps, lift, image, glue, EH guard
+cmake -B build -G Ninja             # -DCATZ_DATA_DIR=<your install> if not ../catzng/catz
 cmake --build build
 ```
 
-Re-run the lift steps after any change to the decoder or lifter; skipping
-`patch_lifted.py` silently drops the exception-handling guards.
+`--ida` exports IDA 9's code maps into `work/ida/` (needs idalib under Python
+3.11); once they exist, plain `python tools/relift.py` re-lifts. Everything it
+writes goes to `work/`, which is gitignored. `tools/entry_seeds.json` lists the
+entry points found by running the game that no code map knows about; add to it
+with pcrecomp's `tools/ne/seed_misses.py` from a run log.
 
 Compiler is MSYS2 mingw64 gcc — `PATH` must include `C:/msys64/mingw64/bin`.
 **`-O2` is required for correctness**: the lifter turns intra-segment jumps into
@@ -83,8 +83,8 @@ It is pinned in `CMakeLists.txt`.
 ## You must supply your own game files
 
 Nothing from the retail game is redistributable, so `game/` and the data tree
-are gitignored and you bring your own. Point `CATZ_DATA_DIR` (in
-`CMakeLists.txt`) at a real install — the directory containing `PTZFILES`,
+are gitignored and you bring your own. Point `CATZ_DATA_DIR` (a CMake
+cache variable) at a real install — the directory containing `PTZFILES`,
 `PLAYPENZ` and `SOUNDS`.
 
 ### …including your own serial number
@@ -109,26 +109,26 @@ a copy of anything you care about.
 ## Layout
 
 ```
-tools/      NE toolchain (adapted from elfish; win16.py replaces tsxlib.py)
-runtime/    cpu.h (CPU+FPU model), Win16 shims, main host loop
-src/        lifted C, one seg*.c per code segment (generated)
-analysis/   recon outputs + IDA exports
+tools/      relift.py (the whole lift in one command), entry_seeds.json
+runtime/    game.c (the facts about Catz the shared runtime needs), win_ini.ini
+analysis/   win16_imports.json (Win16 ordinal names)
 docs/       architecture, the Win16 layer, diagnostics, defect writeups
-build_data/ flat memory image (generated, gitignored)
+work/       lifted C, IDA maps, memory image, generated headers (gitignored)
 game/       original binaries (gitignored, not redistributable)
 ```
 
 ## Licence, and what it does not cover
 
-The code in this repository — the NE toolchain in `tools/`, the runtime and
-Win16 shim layer in `runtime/`, and the documentation — is MIT licensed. See
+The code in this repository — its tools, its runtime configuration and the
+documentation — is MIT licensed, as is pcrecomp, which it builds on. See
 [LICENSE](LICENSE).
 
 That covers this project's own work and nothing else. **Catz is not included and
 is not licensed here.** The game binaries, its data files, its artwork and
 sounds, and your serial number all belong to your own copy and stay there:
-`game/`, the data tree and `build_data/` are gitignored, and so is the lifted
-`src/`, which is a machine translation of the game's own code. Catz is
+`game/` and the data tree are gitignored, and so is `work/`, which holds the
+lifted C -- a machine translation of the game's own code -- and everything else
+derived from the binaries. Catz is
 © 1996 PF Magic. This is an interoperability and preservation exercise; you need
 a copy you already own for any of it to run.
 
